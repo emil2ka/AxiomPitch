@@ -84,29 +84,48 @@ button svg {
 }
 .notch-content {
   position: relative;
-  height: 94px;
+  height: 126px;
   overflow: hidden;
 }
-.silhouette {
+.avatar-scene {
   position: absolute;
   inset: 0;
   width: 100%;
   height: 100%;
-  object-fit: contain;
-  opacity: 0.94;
-  transition: opacity 0.25s;
 }
-.is-locked .silhouette {
-  opacity: 0.48;
+.avatar-canvas {
+  display: block;
+  width: 100%;
+  height: 100%;
 }
-.notch-empty {
+.avatar-fallback {
+  display: none;
+  color: #94b4df;
+  font-size: 12px;
+  text-align: center;
+  padding: 42px 22px;
+}
+.avatar-scene[data-webgl-error="true"] .avatar-fallback {
+  display: block;
+}
+.notch-caption {
+  position: absolute;
+  bottom: 5px;
+  left: 0;
+  right: 0;
   display: flex;
   align-items: center;
   justify-content: center;
-  gap: 12px;
-  height: 100%;
-  color: #7192bd;
-  font-size: 14px;
+  gap: 6px;
+  color: #6b87ac;
+  font-size: 10px;
+  pointer-events: none;
+}
+.notch-caption-dot {
+  width: 4px;
+  height: 4px;
+  background: #47648e;
+  border-radius: 50%;
 }
 .notch-lock {
   position: absolute;
@@ -1040,7 +1059,7 @@ button svg {
 }
 @media (max-width: 800px) {
   .workspace {
-    padding: 145px 22px 20px;
+    padding: 172px 22px 20px;
   }
   .app-header {
     gap: 12px;
@@ -1072,7 +1091,7 @@ button svg {
 }
 @media (max-width: 520px) {
   .workspace {
-    padding: 144px 16px 20px;
+    padding: 172px 16px 20px;
   }
   .brand {
     font-size: 19px;

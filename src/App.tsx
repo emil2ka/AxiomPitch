@@ -32,8 +32,8 @@ import {
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { Audience } from "./components/Audience";
-import { Silhouette } from "./components/Silhouette";
-import type { SilhouetteHandle } from "./components/Silhouette";
+import { Avatar } from "./components/Avatar";
+import type { AvatarHandle } from "./components/Avatar";
 import { SlideView } from "./components/SlideView";
 import { useCamera } from "./hooks/useCamera";
 import { demoSlides, formatTime, readPdf } from "./lib/deck";
@@ -81,7 +81,7 @@ function Presenter() {
   const [locked, setLocked] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>({
     kind: "idle",
-    message: "Включи камеру, чтобы увидеть свой силуэт",
+    message: "Включи камеру, чтобы оживить аватара",
   });
   const [tutorial, setTutorial] = useState(0);
   const [tutorialVisible, setTutorialVisible] = useState(true);
@@ -119,7 +119,7 @@ function Presenter() {
   const [pulse, setPulse] = useState<{ id: number; gesture: Gesture } | null>(
     null,
   );
-  const silhouette = useRef<SilhouetteHandle>(null);
+  const avatar = useRef<AvatarHandle>(null);
   const engine = useRef(new GestureEngine());
   const session = useRef<SessionClock | null>(null);
   const sessionMeta = useRef<{ id: string; startedAt: string }>({
@@ -167,7 +167,7 @@ function Presenter() {
 
   const onFrame = useCallback(
     (frame: VisionFrame) => {
-      silhouette.current?.draw(frame);
+      avatar.current?.draw(frame);
       const state = current.current;
       if (state.tutorialVisible && state.tutorial === 0) {
         const pose = frame.pose;
@@ -251,6 +251,7 @@ function Presenter() {
               : "Выступление завершено";
         if (state.stage === "running" && session.current)
           session.current.commands[gesture]++;
+        avatar.current?.react(gesture);
         setPulse({ id: Date.now(), gesture });
         successUntil.current = frame.time + 1200;
         setFeedback(nextFeedback);
@@ -293,7 +294,7 @@ function Presenter() {
   } = useCamera(onFrame);
 
   useEffect(() => {
-    if (cameraStatus !== "ready") silhouette.current?.clear();
+    if (cameraStatus !== "ready") avatar.current?.clear();
   }, [cameraStatus]);
   useEffect(() => {
     engine.current.setSensitivity(sensitivity);
@@ -522,18 +523,18 @@ function Presenter() {
         className={`notch ${cameraStatus === "ready" ? "is-live" : ""} ${locked ? "is-locked" : ""}`}
       >
         <div className="notch-content">
-          <Silhouette ref={silhouette} />
+          <Avatar ref={avatar} locked={locked} />
           {cameraStatus !== "ready" && (
-            <div className="notch-empty">
+            <div className="notch-caption">
               {cameraStatus === "loading" ? (
-                <LoaderCircle className="spin" size={20} />
+                <LoaderCircle className="spin" size={11} />
               ) : (
-                <Camera size={20} />
+                <span className="notch-caption-dot" />
               )}
               <span>
                 {cameraStatus === "loading"
                   ? "Подключаю камеру"
-                  : "Твоя синяя тень"}
+                  : "Камера выключена"}
               </span>
             </div>
           )}
@@ -845,8 +846,8 @@ function Presenter() {
               )}
             </div>
             <p className="camera-description">
-              Твоя тень появится в чёрной чёлке сверху. Камера обрабатывается на
-              устройстве.
+              3D-аватар в чёлке повторит движения головы и ладоней. Камера
+              обрабатывается на устройстве.
             </p>
             <button
               className={`button ${cameraStatus === "ready" ? "secondary" : "primary"} full`}

@@ -12,7 +12,6 @@ export type VisionFrame = {
   time: number;
   pose: Point[];
   hands: Point[][];
-  mask?: { width: number; height: number; pixels: Uint8ClampedArray };
   duration: number;
 };
 export type VisionMessage =

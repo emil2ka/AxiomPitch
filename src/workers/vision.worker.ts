@@ -34,7 +34,7 @@ self.onmessage = async (event: MessageEvent) => {
         canvas: new OffscreenCanvas(640, 480),
         runningMode: "VIDEO",
         numPoses: 1,
-        outputSegmentationMasks: true,
+        outputSegmentationMasks: false,
         minPoseDetectionConfidence: 0.55,
         minPosePresenceConfidence: 0.55,
       });
@@ -70,7 +70,6 @@ self.onmessage = async (event: MessageEvent) => {
   try {
     const hands = hand.detectForVideo(bitmap, event.data.time);
     pose.detectForVideo(bitmap, event.data.time, (result) => {
-      const mask = result.segmentationMasks?.[0];
       const frame: VisionFrame = {
         type: "frame",
         time: event.data.time,
@@ -78,19 +77,7 @@ self.onmessage = async (event: MessageEvent) => {
         hands: hands.landmarks.map(mirror),
         duration: performance.now() - started,
       };
-      if (mask && frame.pose.length > 0) {
-        const values = mask.getAsFloat32Array();
-        const pixels = new Uint8ClampedArray(values.length * 4);
-        for (let i = 0; i < values.length; i++) {
-          const a = Math.max(0, Math.min(1, (values[i] - 0.32) / 0.36));
-          pixels[i * 4] = 49;
-          pixels[i * 4 + 1] = 133;
-          pixels[i * 4 + 2] = 255;
-          pixels[i * 4 + 3] = Math.round(a * a * (3 - 2 * a) * 255);
-        }
-        frame.mask = { width: mask.width, height: mask.height, pixels };
-        self.postMessage(frame, [pixels.buffer]);
-      } else self.postMessage(frame);
+      self.postMessage(frame);
     });
   } catch (error) {
     self.postMessage({
