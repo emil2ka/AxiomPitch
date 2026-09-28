@@ -54,7 +54,7 @@ export const Avatar = forwardRef<AvatarHandle, { locked: boolean }>(
         ref={hostRef}
         className="avatar-scene"
         role="img"
-        aria-label="Синий 3D-аватар: овальная голова с глазами и две объёмные ладони"
+        aria-label="Синий 3D-аватар: округлая голова с глазами и улыбкой и две объёмные ладони"
       >
         <span className="avatar-fallback">
           Для 3D-аватара включи WebGL в браузере

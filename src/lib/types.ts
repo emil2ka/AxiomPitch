@@ -12,10 +12,15 @@ export type VisionFrame = {
   time: number;
   pose: Point[];
   hands: Point[][];
+  poseWorld?: Point[];
+  handWorlds?: Point[][];
+  handLabels?: string[];
   duration: number;
 };
 export type VisionMessage =
-  VisionFrame | { type: "ready" } | { type: "error"; message: string };
+  | VisionFrame
+  | { type: "ready" }
+  | { type: "error"; message: string };
 export type Slide = {
   id: string;
   title: string;

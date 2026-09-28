@@ -1,4 +1,6 @@
 import * as THREE from "three";
+import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
+import { headOrientation, palmOrientation } from "./avatar-tracking";
 import type { Gesture, Point, VisionFrame } from "./types";
 
 export type AvatarScene = {
@@ -6,301 +8,343 @@ export type AvatarScene = {
   clear: () => void;
   react: (gesture: Gesture) => void;
   setLocked: (locked: boolean) => void;
+  diagnostics: () => { calls: number; triangles: number; paints: number };
   dispose: () => void;
 };
 
 const clamp = THREE.MathUtils.clamp;
 const smooth = THREE.MathUtils.lerp;
 
-/** A small, real 3D character; the hand joints are driven by camera landmarks. */
+/** Tiny friendly character. Each entire hand is one mesh with articulated bones. */
 export function createAvatarScene(host: HTMLElement): AvatarScene {
   const renderer = new THREE.WebGLRenderer({
     alpha: true,
     antialias: true,
     powerPreference: "low-power",
   });
-  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 2));
-  renderer.setClearColor(0x000000, 0);
+  renderer.setPixelRatio(Math.min(window.devicePixelRatio, 1.5));
+  renderer.setClearColor(0, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
-  renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.15;
   renderer.domElement.className = "avatar-canvas";
   renderer.domElement.setAttribute("aria-hidden", "true");
   host.appendChild(renderer.domElement);
-
   const scene = new THREE.Scene();
   const camera = new THREE.OrthographicCamera(-2.2, 2.2, 0.82, -0.82, 0.1, 30);
-  camera.position.set(0, 0.03, 7);
-  camera.lookAt(0, 0.03, 0);
-  scene.add(new THREE.AmbientLight(0xb8d0ff, 2.0));
-  const key = new THREE.DirectionalLight(0xdceaff, 1.7);
+  camera.position.set(0, 0, 7);
+  scene.add(new THREE.AmbientLight(0xffffff, 2));
+  const key = new THREE.DirectionalLight(0xe3f2ff, 2.1);
   key.position.set(-3, 4, 5);
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0x88b6ff, 0.7);
-  fill.position.set(3, 0.7, 3);
-  scene.add(fill);
-  const rim = new THREE.DirectionalLight(0x6ba4ff, 0.7);
-  rim.position.set(1, 2, -3);
-  scene.add(rim);
-
-  const resources: Array<THREE.BufferGeometry | THREE.Material> = [];
-  const sphere = new THREE.SphereGeometry(1, 40, 28);
+  const resources: Array<
+    THREE.BufferGeometry | THREE.Material | THREE.Skeleton
+  > = [];
+  const sphere = new THREE.SphereGeometry(1, 24, 16);
   resources.push(sphere);
-  const material = (color: number, roughness = 0.8) => {
-    const value = new THREE.MeshPhysicalMaterial({
-      color,
-      roughness,
-      metalness: 0,
-      clearcoat: 0,
-      clearcoatRoughness: 0.2,
-      emissive: 0x061d56,
-      emissiveIntensity: 0.06,
+  const material = () => {
+    const mat = new THREE.MeshLambertMaterial({
+      color: 0x619cff,
+      emissive: 0x16346b,
+      emissiveIntensity: 0.1,
     });
-    resources.push(value);
-    return value;
+    resources.push(mat);
+    return mat;
   };
-  const blue = material(0x347bea);
-  const dark = new THREE.MeshBasicMaterial({ color: 0x071b3a });
-  resources.push(dark);
+  const blue = material();
+  const white = new THREE.MeshBasicMaterial({ color: 0xf2faff });
+  resources.push(white);
   const orb = (
     parent: THREE.Object3D,
     mat: THREE.Material,
-    size: [number, number, number],
-    position: [number, number, number],
+    size: number[],
+    position: number[],
   ) => {
     const mesh = new THREE.Mesh(sphere, mat);
-    mesh.scale.set(...size);
-    mesh.position.set(...position);
+    mesh.scale.set(size[0], size[1], size[2]);
+    mesh.position.set(position[0], position[1], position[2]);
     parent.add(mesh);
     return mesh;
   };
-
   const head = new THREE.Group();
-  head.position.y = 0.02;
+  head.position.y = 0.07;
   scene.add(head);
-  orb(head, blue, [0.4, 0.5, 0.33], [0, 0.03, 0]);
-  const eyes: THREE.Group[] = [],
-    pupils: THREE.Group[] = [];
+  // A wide, soft pebble silhouette avoids the uncanny human/egg proportions.
+  orb(head, blue, [0.41, 0.355, 0.28], [0, 0, 0]);
+  const eyes: THREE.Mesh[] = [];
   for (const side of [-1, 1]) {
-    const eye = new THREE.Group();
-    eye.position.set(side * 0.115, 0.075, 0.315);
-    head.add(eye);
-    eyes.push(eye);
-    const pupil = new THREE.Group();
-    eye.add(pupil);
-    pupils.push(pupil);
-    orb(pupil, dark, [0.027, 0.046, 0.012], [0, 0, 0]);
+    eyes.push(
+      orb(head, white, [0.043, 0.055, 0.015], [side * 0.13, 0.038, 0.269]),
+    );
   }
+  const smilePath = new THREE.QuadraticBezierCurve3(
+    new THREE.Vector3(-0.065, -0.077, 0.273),
+    new THREE.Vector3(0, -0.116, 0.285),
+    new THREE.Vector3(0.065, -0.077, 0.273),
+  );
+  const smileGeometry = new THREE.TubeGeometry(smilePath, 12, 0.008, 5, false);
+  resources.push(smileGeometry);
+  head.add(new THREE.Mesh(smileGeometry, white));
 
   const buildHand = (side: number) => {
     const group = new THREE.Group();
-    group.position.set(side * 1.12, -0.06, 0.05);
-    group.scale.setScalar(0.72);
-    group.scale.x *= side;
+    group.position.set(side * 0.94, -0.16, 0.02);
+    group.scale.set(0.64 * side, 0.64, 0.64);
     scene.add(group);
-    const palmMaterial = material(0x347bea);
-    orb(group, palmMaterial, [0.205, 0.24, 0.098], [0, -0.015, 0]);
-    orb(group, palmMaterial, [0.16, 0.115, 0.077], [0, -0.246, -0.014]);
-    const lengths = [
-      [0.13, 0.09, 0.075],
-      [0.145, 0.105, 0.08],
-      [0.133, 0.1, 0.075],
-      [0.105, 0.078, 0.065],
-      [0.105, 0.09, 0.075],
-    ];
+    const palmMaterial = material();
+    const root = new THREE.Bone();
+    const bones = [root];
+    const fingers: THREE.Bone[][] = [];
+    const parts: THREE.BufferGeometry[] = [];
+    const addSkin = (
+      geometry: THREE.BufferGeometry,
+      weightAt: (i: number) => [number, number, number],
+    ) => {
+      const count = geometry.attributes.position.count;
+      const indices = new Uint16Array(count * 4),
+        weights = new Float32Array(count * 4);
+      for (let i = 0; i < count; i++) {
+        const [a, b, blend] = weightAt(i);
+        indices[i * 4] = a;
+        indices[i * 4 + 1] = b;
+        weights[i * 4] = 1 - blend;
+        weights[i * 4 + 1] = blend;
+      }
+      geometry.setAttribute(
+        "skinIndex",
+        new THREE.Uint16BufferAttribute(indices, 4),
+      );
+      geometry.setAttribute(
+        "skinWeight",
+        new THREE.Float32BufferAttribute(weights, 4),
+      );
+      parts.push(geometry);
+    };
+    for (const [scale, position] of [
+      [
+        [0.19, 0.225, 0.09],
+        [0, -0.018, 0],
+      ],
+      [
+        [0.12, 0.11, 0.073],
+        [0, -0.215, -0.012],
+      ],
+    ]) {
+      const geo = new THREE.SphereGeometry(1, 16, 12);
+      geo.scale(scale[0], scale[1], scale[2]);
+      geo.translate(position[0], position[1], position[2]);
+      addSkin(geo, () => [0, 0, 0]);
+    }
     const starts = [
-      [-0.145, 0.16],
-      [-0.046, 0.202],
-      [0.057, 0.183],
-      [0.147, 0.122],
-      [-0.178, -0.073],
+      [-0.127, 0.13],
+      [-0.043, 0.175],
+      [0.046, 0.15],
+      [0.124, 0.105],
+      [-0.163, -0.065],
     ];
-    const fingers: THREE.Group[][] = [];
+    const lengths = [
+      [0.11, 0.085, 0.07],
+      [0.13, 0.09, 0.075],
+      [0.12, 0.085, 0.07],
+      [0.09, 0.065, 0.055],
+      [0.09, 0.07, 0.055],
+    ];
     lengths.forEach((segments, finger) => {
-      const chain: THREE.Group[] = [];
-      let parent: THREE.Object3D = group;
-      segments.forEach((length, joint) => {
-        const pivot = new THREE.Group();
+      const chain: THREE.Bone[] = [];
+      const firstIndex = bones.length;
+      let parent: THREE.Bone = root;
+      segments.forEach((_, joint) => {
+        const bone = new THREE.Bone();
         if (joint === 0) {
-          pivot.position.set(starts[finger][0], starts[finger][1], 0.002);
-          pivot.rotation.z = finger === 4 ? 0.84 : (1.5 - finger) * 0.065;
-        } else pivot.position.y = segments[joint - 1];
-        const radius = finger === 3 ? 0.045 : finger === 4 ? 0.052 : 0.05;
-        const geometry = new THREE.CapsuleGeometry(
-          radius,
-          Math.max(0.012, length - radius * 1.45),
-          6,
-          12,
-        );
-        resources.push(geometry);
-        const segment = new THREE.Mesh(geometry, palmMaterial);
-        segment.position.y = length * 0.5;
-        pivot.add(segment);
-        parent.add(pivot);
-        chain.push(pivot);
-        parent = pivot;
+          bone.position.set(starts[finger][0], starts[finger][1], 0.002);
+          bone.rotation.z = finger === 4 ? 0.85 : (1.5 - finger) * 0.1;
+        } else bone.position.y = segments[joint - 1];
+        parent.add(bone);
+        bones.push(bone);
+        chain.push(bone);
+        parent = bone;
       });
+      root.updateMatrixWorld(true);
+      const total = segments.reduce((sum, v) => sum + v, 0);
+      const radius = finger === 3 ? 0.035 : 0.041;
+      // One continuous surface; skin weights smoothly connect all three joints.
+      const geo = new THREE.CapsuleGeometry(
+        radius,
+        total - 2 * radius,
+        4,
+        8,
+        6,
+      );
+      geo.translate(0, total / 2 - 0.016, 0);
+      addSkin(geo, (i) => {
+        const y = Math.max(0, geo.attributes.position.getY(i));
+        const segment = y < segments[0] ? 0 : 1;
+        const blend = clamp(
+          (y - (segment ? segments[0] : 0)) / segments[segment],
+          0,
+          1,
+        );
+        return [firstIndex + segment, firstIndex + segment + 1, blend];
+      });
+      geo.applyMatrix4(chain[0].matrixWorld);
       fingers.push(chain);
     });
-    return { group, fingers, material: palmMaterial, side };
+    const geometry = mergeGeometries(parts)!;
+    parts.forEach((part) => part.dispose());
+    resources.push(geometry);
+    const mesh = new THREE.SkinnedMesh(geometry, palmMaterial);
+    mesh.frustumCulled = false;
+    mesh.add(root);
+    group.add(mesh);
+    const skeleton = new THREE.Skeleton(bones);
+    mesh.bind(skeleton);
+    resources.push(skeleton);
+    return {
+      group,
+      fingers,
+      material: palmMaterial,
+      side,
+      target: new THREE.Quaternion(),
+    };
   };
   const left = buildHand(-1),
     right = buildHand(1);
-  let frame: VisionFrame | null = null;
-  let lastFrameTime = -Infinity;
-  let locked = false;
-  let impulse: { gesture: Gesture; start: number } | null = null;
+  const neutralHead = new THREE.Quaternion();
+  const headTarget = new THREE.Quaternion();
+  const handRest = (side: number) =>
+    new THREE.Quaternion().setFromEuler(
+      new THREE.Euler(0.12, -side * 0.24, -side * 0.22),
+    );
+  const leftRest = handRest(-1),
+    rightRest = handRest(1);
+  let frame: VisionFrame | null = null,
+    lastFrameTime = -Infinity;
+  let locked = false,
+    impulse: { gesture: Gesture; start: number } | null = null;
   let raf = 0,
-    lastPaint = 0,
-    disposed = false;
+    lastPaint = -Infinity,
+    disposed = false,
+    paints = 0,
+    awakeUntil = performance.now() + 650;
+  let previousBlink = false,
+    previousLive = false;
   const motionPreference = window.matchMedia(
     "(prefers-reduced-motion: reduce)",
   );
   const v1 = new THREE.Vector3(),
     v2 = new THREE.Vector3();
   const bend = (a: Point, b: Point, c: Point) => {
-    v1.set(b.x - a.x, (b.y - a.y) * 0.75, (b.z ?? 0) - (a.z ?? 0)).normalize();
-    v2.set(c.x - b.x, (c.y - b.y) * 0.75, (c.z ?? 0) - (b.z ?? 0)).normalize();
-    return clamp(Math.acos(clamp(v1.dot(v2), -1, 1)), 0, 1.5);
+    v1.set(b.x - a.x, -(b.y - a.y), (b.z ?? 0) - (a.z ?? 0));
+    v2.set(c.x - b.x, -(c.y - b.y), (c.z ?? 0) - (b.z ?? 0));
+    if (v1.lengthSq() < 1e-8 || v2.lengthSq() < 1e-8) return 0;
+    return clamp(
+      Math.acos(clamp(v1.normalize().dot(v2.normalize()), -1, 1)),
+      0,
+      1.5,
+    );
   };
   const updateHand = (
     rig: ReturnType<typeof buildHand>,
-    landmarks: Point[] | undefined,
-    elapsed: number,
+    index: number,
+    live: VisionFrame | null,
     kick: number,
   ) => {
-    const side = rig.side;
-    let x = side * 1.12,
-      y = -0.06,
-      angle = -side * 0.17;
+    const landmarks = index >= 0 ? live?.hands[index] : undefined;
+    const world = index >= 0 ? live?.handWorlds?.[index] : undefined;
+    let x = rig.side * 0.94,
+      y = -0.16;
+    rig.target.copy(rig.side < 0 ? leftRest : rightRest);
     if (landmarks?.length === 21) {
-      const middle = landmarks[9],
-        wrist = landmarks[0];
-      x = clamp(
-        (middle.x - 0.5) * 3.1,
-        side < 0 ? -1.64 : 0.66,
-        side < 0 ? -0.66 : 1.64,
+      x = clamp((landmarks[9].x - 0.5) * 3.2, -1.65, 1.65);
+      y = clamp((0.5 - landmarks[9].y) * 1.6, -0.31, 0.24);
+      const q = palmOrientation(
+        world?.length === 21 ? world : landmarks,
+        rig.side,
+        !!world?.length,
       );
-      y = clamp((0.49 - middle.y) * 1.55, -0.24, 0.16);
-      angle = clamp(
-        -Math.atan2(middle.x - wrist.x, wrist.y - middle.y),
-        -0.8,
-        0.8,
-      );
-      rig.material.emissiveIntensity = 0.1 + kick * 0.32;
-    } else rig.material.emissiveIntensity = 0.06 + kick * 0.3;
-    rig.group.position.x = smooth(rig.group.position.x, x, 0.2);
-    rig.group.position.y = smooth(
-      rig.group.position.y,
-      y +
-        (motionPreference.matches ? 0 : Math.sin(elapsed * 1.1 + side) * 0.009),
-      0.2,
-    );
+      if (q) rig.target.copy(q);
+    }
+    rig.group.position.x = smooth(rig.group.position.x, x, 0.24);
+    rig.group.position.y = smooth(rig.group.position.y, y, 0.24);
     rig.group.position.z = smooth(
       rig.group.position.z,
-      0.05 + kick * 0.18,
-      0.25,
+      0.02 + kick * 0.1,
+      0.24,
     );
-    rig.group.rotation.z = smooth(rig.group.rotation.z, angle, 0.2);
-    rig.group.rotation.y = smooth(rig.group.rotation.y, -side * 0.2, 0.15);
+    rig.group.quaternion.slerp(rig.target, 0.24);
+    rig.material.emissiveIntensity = 0.1 + kick * 0.25;
+    const points = world?.length === 21 ? world : landmarks;
     rig.fingers.forEach((chain, finger) => {
       const base = [5, 9, 13, 17, 1][finger];
-      const curls = landmarks
-        ? [
-            bend(landmarks[0], landmarks[base], landmarks[base + 1]) * 0.4,
-            bend(landmarks[base], landmarks[base + 1], landmarks[base + 2]),
-            bend(landmarks[base + 1], landmarks[base + 2], landmarks[base + 3]),
-          ]
-        : [0, 0.05, 0.06];
+      const curls =
+        points?.length === 21
+          ? [
+              bend(points[0], points[base], points[base + 1]) * 0.35,
+              bend(points[base], points[base + 1], points[base + 2]),
+              bend(points[base + 1], points[base + 2], points[base + 3]),
+            ]
+          : [0.08, 0.13, 0.1];
       chain.forEach((joint, i) => {
-        joint.rotation.x = smooth(joint.rotation.x, curls[i], 0.23);
+        joint.rotation.x = smooth(joint.rotation.x, curls[i], 0.25);
       });
     });
   };
-
+  const wake = (duration = 700) => {
+    awakeUntil = Math.max(awakeUntil, performance.now() + duration);
+  };
   const paint = (time: number) => {
     if (disposed) return;
     raf = requestAnimationFrame(paint);
-    if (document.hidden || time - lastPaint < 30) return;
+    if (document.hidden || time - lastPaint < 1000 / 30) return;
+    const live = frame && time - lastFrameTime < 1000 ? frame : null;
+    const blinking = !motionPreference.matches && time % 4800 < 160;
+    if (blinking !== previousBlink || !!live !== previousLive) wake();
+    previousBlink = blinking;
+    previousLive = !!live;
+    // No continuous GPU work for a stationary, camera-off character.
+    if (!live && time > awakeUntil && !blinking) return;
     lastPaint = time;
-    const live = frame && time - lastFrameTime < 1400 ? frame : null;
-    const elapsed = time / 1000;
     const progress = impulse ? (time - impulse.start) / 420 : 1;
     const kick =
       motionPreference.matches || progress >= 1
         ? 0
-        : Math.sin(progress * Math.PI) * 0.6;
+        : Math.sin(progress * Math.PI) * 0.5;
     const direction =
       impulse?.gesture === "next"
         ? 1
         : impulse?.gesture === "previous"
           ? -1
           : 0;
-    let rotationX = -0.06,
-      rotationY = 0,
-      rotationZ = 0,
-      headX = 0;
-    if (live && live.pose.length > 8) {
-      const nose = live.pose[0],
-        a = live.pose[2],
-        b = live.pose[5];
-      const eyeLeft = a.x < b.x ? a : b,
-        eyeRight = a.x < b.x ? b : a;
-      const eyeSpan = Math.max(0.035, eyeRight.x - eyeLeft.x);
-      rotationY = clamp(
-        ((nose.x - (a.x + b.x) / 2) / eyeSpan) * 1.1,
-        -0.42,
-        0.42,
-      );
-      rotationX = clamp(
-        ((nose.y - (a.y + b.y) / 2) / eyeSpan - 0.45) * 0.6,
-        -0.25,
-        0.25,
-      );
-      rotationZ = clamp(
-        -Math.atan2((eyeRight.y - eyeLeft.y) * 0.75, eyeSpan),
-        -0.32,
-        0.32,
-      );
-      headX = clamp((nose.x - 0.5) * 0.65, -0.18, 0.18);
-    }
-    head.position.x = smooth(head.position.x, headX, 0.15);
-    head.position.y =
-      0.02 + (motionPreference.matches ? 0 : Math.sin(elapsed * 1.35) * 0.009);
-    head.rotation.x = smooth(head.rotation.x, rotationX, 0.15);
-    head.rotation.y = smooth(
-      head.rotation.y,
-      rotationY + direction * kick * 0.15,
-      0.18,
+    headTarget.copy(
+      live
+        ? (headOrientation(live.pose, live.poseWorld) ?? neutralHead)
+        : neutralHead,
     );
-    head.rotation.z = smooth(head.rotation.z, rotationZ, 0.18);
-    const blinkCycle = time % 4700;
-    const blink =
-      !motionPreference.matches && blinkCycle < 150
-        ? 1 - Math.sin((blinkCycle / 150) * Math.PI) * 0.93
-        : 1;
+    head.quaternion.slerp(headTarget, 0.22);
+    head.position.x = smooth(
+      head.position.x,
+      live?.pose[0] ? clamp((live.pose[0].x - 0.5) * 0.6, -0.18, 0.18) : 0,
+      0.2,
+    );
+    const blink = blinking
+      ? 1 - Math.sin(((time % 4800) / 160) * Math.PI) * 0.88
+      : 1;
     eyes.forEach((eye) => {
-      eye.scale.y = blink * (locked ? 0.82 : 1);
+      eye.scale.y = 0.055 * blink * (locked ? 0.8 : 1);
     });
-    pupils.forEach((pupil) => {
-      pupil.position.x = smooth(
-        pupil.position.x,
-        0.008 + rotationY * 0.047 + direction * kick * 0.035,
-        0.23,
-      );
+    blue.emissiveIntensity = 0.1 + kick * 0.15;
+    let li = -1,
+      ri = -1;
+    live?.hands.forEach((points, index) => {
+      if (points.length !== 21) return;
+      const label = live.handLabels?.[index];
+      // Labels preserve identity when the hands cross the centre of the image.
+      const isLeft = label ? label === "Left" : points[9].x < 0.5;
+      if (isLeft) li = index;
+      else ri = index;
     });
-    blue.emissiveIntensity = (locked ? 0.025 : 0.06) + kick * 0.15;
-    const ordered =
-      live?.hands
-        .filter((points) => points.length === 21)
-        .sort((a, b) => a[9].x - b[9].x) ?? [];
-    const leftPoints = ordered.find((points) => points[9].x < 0.5);
-    const rightPoints = [...ordered]
-      .reverse()
-      .find((points) => points[9].x >= 0.5);
-    updateHand(left, leftPoints, elapsed, direction <= 0 ? kick : 0);
-    updateHand(right, rightPoints, elapsed, direction >= 0 ? kick : 0);
+    updateHand(left, li, live, direction <= 0 ? kick : 0);
+    updateHand(right, ri, live, direction >= 0 ? kick : 0);
     renderer.render(scene, camera);
+    paints++;
     host.dataset.avatarReady = "true";
     host.dataset.tracking = live ? "true" : "false";
   };
@@ -308,10 +352,10 @@ export function createAvatarScene(host: HTMLElement): AvatarScene {
     const { width, height } = host.getBoundingClientRect();
     if (!width || !height) return;
     renderer.setSize(width, height, false);
-    const aspect = width / height;
-    camera.left = -aspect * 0.82;
-    camera.right = aspect * 0.82;
+    camera.left = (-width / height) * 0.82;
+    camera.right = (width / height) * 0.82;
     camera.updateProjectionMatrix();
+    wake();
   };
   const observer = new ResizeObserver(resize);
   observer.observe(host);
@@ -321,16 +365,25 @@ export function createAvatarScene(host: HTMLElement): AvatarScene {
     draw: (next) => {
       frame = next;
       lastFrameTime = performance.now();
+      wake();
     },
     clear: () => {
       frame = null;
+      wake();
     },
     react: (gesture) => {
       impulse = { gesture, start: performance.now() };
+      wake();
     },
     setLocked: (value) => {
       locked = value;
+      wake();
     },
+    diagnostics: () => ({
+      calls: renderer.info.render.calls,
+      triangles: renderer.info.render.triangles,
+      paints,
+    }),
     dispose: () => {
       disposed = true;
       cancelAnimationFrame(raf);

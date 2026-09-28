@@ -19,6 +19,7 @@ scope.import = async (url: string) => {
 
 let pose: PoseLandmarker | undefined;
 let hand: HandLandmarker | undefined;
+const mirrorWorld = (points: Point[]) => points.map((p) => ({ ...p, x: -p.x }));
 const mirror = (points: Point[]) => points.map((p) => ({ ...p, x: 1 - p.x }));
 
 self.onmessage = async (event: MessageEvent) => {
@@ -75,6 +76,11 @@ self.onmessage = async (event: MessageEvent) => {
         time: event.data.time,
         pose: mirror(result.landmarks[0] ?? []),
         hands: hands.landmarks.map(mirror),
+        poseWorld: mirrorWorld(result.worldLandmarks[0] ?? []),
+        handWorlds: hands.worldLandmarks.map(mirrorWorld),
+        handLabels: hands.handedness.map(
+          (labels) => labels[0]?.categoryName ?? "",
+        ),
         duration: performance.now() - started,
       };
       self.postMessage(frame);
