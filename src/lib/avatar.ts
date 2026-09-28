@@ -23,7 +23,7 @@ export function createAvatarScene(host: HTMLElement): AvatarScene {
   renderer.setClearColor(0x000000, 0);
   renderer.outputColorSpace = THREE.SRGBColorSpace;
   renderer.toneMapping = THREE.ACESFilmicToneMapping;
-  renderer.toneMappingExposure = 1.35;
+  renderer.toneMappingExposure = 1.15;
   renderer.domElement.className = "avatar-canvas";
   renderer.domElement.setAttribute("aria-hidden", "true");
   host.appendChild(renderer.domElement);
@@ -32,41 +32,36 @@ export function createAvatarScene(host: HTMLElement): AvatarScene {
   const camera = new THREE.OrthographicCamera(-2.2, 2.2, 0.82, -0.82, 0.1, 30);
   camera.position.set(0, 0.03, 7);
   camera.lookAt(0, 0.03, 0);
-  scene.add(new THREE.AmbientLight(0x96bfff, 1.25));
-  const key = new THREE.DirectionalLight(0xb9e0ff, 4.2);
+  scene.add(new THREE.AmbientLight(0xb8d0ff, 2.0));
+  const key = new THREE.DirectionalLight(0xdceaff, 1.7);
   key.position.set(-3, 4, 5);
   scene.add(key);
-  const fill = new THREE.DirectionalLight(0x3888ff, 2.6);
+  const fill = new THREE.DirectionalLight(0x88b6ff, 0.7);
   fill.position.set(3, 0.7, 3);
   scene.add(fill);
-  const rim = new THREE.DirectionalLight(0x4ba6ff, 3.8);
+  const rim = new THREE.DirectionalLight(0x6ba4ff, 0.7);
   rim.position.set(1, 2, -3);
   scene.add(rim);
 
   const resources: Array<THREE.BufferGeometry | THREE.Material> = [];
   const sphere = new THREE.SphereGeometry(1, 40, 28);
   resources.push(sphere);
-  const material = (color: number, roughness = 0.29) => {
+  const material = (color: number, roughness = 0.8) => {
     const value = new THREE.MeshPhysicalMaterial({
       color,
       roughness,
-      metalness: 0.14,
-      clearcoat: 1,
+      metalness: 0,
+      clearcoat: 0,
       clearcoatRoughness: 0.2,
       emissive: 0x061d56,
-      emissiveIntensity: 0.15,
+      emissiveIntensity: 0.06,
     });
     resources.push(value);
     return value;
   };
-  const blue = material(0x1263e9);
-  const dark = material(0x06142b, 0.4);
-  const white = material(0xe7f6ff, 0.24);
-  white.emissive.set(0x85cfff);
-  white.emissiveIntensity = 0.13;
-  const irisMat = material(0x079ad9, 0.22);
-  const highlightMat = new THREE.MeshBasicMaterial({ color: 0xffffff });
-  resources.push(highlightMat);
+  const blue = material(0x347bea);
+  const dark = new THREE.MeshBasicMaterial({ color: 0x071b3a });
+  resources.push(dark);
   const orb = (
     parent: THREE.Object3D,
     mat: THREE.Material,
@@ -88,39 +83,24 @@ export function createAvatarScene(host: HTMLElement): AvatarScene {
     pupils: THREE.Group[] = [];
   for (const side of [-1, 1]) {
     const eye = new THREE.Group();
-    eye.position.set(side * 0.155, 0.1, 0.292);
+    eye.position.set(side * 0.115, 0.075, 0.315);
     head.add(eye);
     eyes.push(eye);
-    orb(eye, dark, [0.139, 0.178, 0.063], [0, 0, 0]);
-    orb(eye, white, [0.112, 0.149, 0.06], [0, 0.006, 0.027]);
     const pupil = new THREE.Group();
-    pupil.position.set(0.008, -0.005, 0.079);
     eye.add(pupil);
     pupils.push(pupil);
-    orb(pupil, irisMat, [0.059, 0.075, 0.016], [0, 0, 0]);
-    orb(pupil, dark, [0.032, 0.049, 0.012], [0, 0, 0.014]);
-    orb(pupil, highlightMat, [0.018, 0.02, 0.009], [-0.022, 0.03, 0.026]);
-    orb(pupil, highlightMat, [0.007, 0.008, 0.005], [0.019, -0.023, 0.026]);
+    orb(pupil, dark, [0.027, 0.046, 0.012], [0, 0, 0]);
   }
-  const smileGeometry = new THREE.TorusGeometry(0.085, 0.012, 8, 24, Math.PI);
-  resources.push(smileGeometry);
-  const smile = new THREE.Mesh(smileGeometry, dark);
-  smile.position.set(0, -0.19, 0.302);
-  smile.scale.y = 0.5;
-  smile.rotation.z = Math.PI;
-  head.add(smile);
 
   const buildHand = (side: number) => {
     const group = new THREE.Group();
     group.position.set(side * 1.12, -0.06, 0.05);
-    group.scale.setScalar(0.84);
+    group.scale.setScalar(0.72);
     group.scale.x *= side;
     scene.add(group);
-    const palmMaterial = material(0x2779f5);
+    const palmMaterial = material(0x347bea);
     orb(group, palmMaterial, [0.205, 0.24, 0.098], [0, -0.015, 0]);
     orb(group, palmMaterial, [0.16, 0.115, 0.077], [0, -0.246, -0.014]);
-    const cuffMat = material(0x082d70);
-    orb(group, cuffMat, [0.169, 0.05, 0.087], [0, -0.318, -0.016]);
     const lengths = [
       [0.13, 0.09, 0.075],
       [0.145, 0.105, 0.08],
@@ -145,10 +125,10 @@ export function createAvatarScene(host: HTMLElement): AvatarScene {
           pivot.position.set(starts[finger][0], starts[finger][1], 0.002);
           pivot.rotation.z = finger === 4 ? 0.84 : (1.5 - finger) * 0.065;
         } else pivot.position.y = segments[joint - 1];
-        const radius = finger === 3 ? 0.048 : finger === 4 ? 0.061 : 0.055;
+        const radius = finger === 3 ? 0.045 : finger === 4 ? 0.052 : 0.05;
         const geometry = new THREE.CapsuleGeometry(
           radius,
-          Math.max(0.016, length - radius * 1.1),
+          Math.max(0.012, length - radius * 1.45),
           6,
           12,
         );
@@ -207,8 +187,8 @@ export function createAvatarScene(host: HTMLElement): AvatarScene {
         -0.8,
         0.8,
       );
-      rig.material.emissiveIntensity = 0.24 + kick * 0.7;
-    } else rig.material.emissiveIntensity = 0.1 + kick * 0.6;
+      rig.material.emissiveIntensity = 0.1 + kick * 0.32;
+    } else rig.material.emissiveIntensity = 0.06 + kick * 0.3;
     rig.group.position.x = smooth(rig.group.position.x, x, 0.2);
     rig.group.position.y = smooth(
       rig.group.position.y,
@@ -309,7 +289,7 @@ export function createAvatarScene(host: HTMLElement): AvatarScene {
         0.23,
       );
     });
-    blue.emissiveIntensity = (locked ? 0.06 : 0.15) + kick * 0.25;
+    blue.emissiveIntensity = (locked ? 0.025 : 0.06) + kick * 0.15;
     const ordered =
       live?.hands
         .filter((points) => points.length === 21)
