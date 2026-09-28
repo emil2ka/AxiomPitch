@@ -27,3 +27,7 @@ dist-ssr
 .env
 .env.*
 !.env.example
+
+# Models and WASM are reproducibly prepared by npm install/build.
+public/vision/
+work/

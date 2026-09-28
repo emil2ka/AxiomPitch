@@ -1,13 +1,16 @@
 {
   "name": "axiompitch",
   "private": true,
-  "version": "0.0.0",
+  "version": "0.1.0",
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run setup:vision && tsc -b && vite build",
     "lint": "oxlint",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "setup:vision": "node scripts/setup-vision.mjs",
+    "postinstall": "npm run setup:vision",
+    "test": "node --experimental-strip-types --test tests/*.test.ts"
   },
   "dependencies": {
     "@mediapipe/tasks-vision": "^1.0.1",
