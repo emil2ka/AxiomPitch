@@ -1,0 +1,36 @@
+@import 'tailwindcss';
+
+:root {
+  font-family: Inter, system-ui, -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+  color: #e9eef8;
+  background: #101218;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+  color-scheme: dark;
+}
+* { box-sizing: border-box; }
+body { margin: 0; min-width: 320px; }
+button, a { -webkit-tap-highlight-color: transparent; }
+button { font: inherit; cursor: pointer; }
+button:disabled { opacity: .35; cursor: default; }
+button:focus-visible, a:focus-visible { outline: 2px solid #5ca2ff; outline-offset: 5px; }
+.workspace { min-height: 100svh; padding: 88px 5vw 32px; }
+.notch { position: fixed; z-index: 10; inset: 0 auto auto 50%; transform: translateX(-50%); display: flex; align-items: center; justify-content: center; gap: 10px; width: min(320px, 90vw); height: 52px; border-radius: 0 0 24px 24px; background: #000; color: #6d9ddf; font-size: 14px; }
+.app-header { display: flex; align-items: center; justify-content: space-between; gap: 16px; max-width: 1100px; margin: 0 auto 36px; }
+.brand { display: flex; align-items: center; gap: 10px; color: #e9eef8; text-decoration: none; font-weight: 650; font-size: 22px; letter-spacing: -.6px; }
+.brand svg { color: #4c93ff; }
+.version { color: #9ba9bf; font-size: 14px; }
+.presentation { max-width: 1100px; margin: auto; }
+.slide-meta { display: flex; justify-content: space-between; margin-bottom: 12px; color: #9ba9bf; font-size: 14px; }
+.slide { display: flex; flex-direction: column; justify-content: center; min-height: 350px; aspect-ratio: 16 / 9; padding: clamp(28px, 6vw, 72px); border: 1px solid #29344a; border-radius: 20px; background: #172338; }
+.slide-brand { color: #72aaff; font-size: 14px; letter-spacing: 3px; }
+h1 { margin: 28px 0 18px; font-size: clamp(36px, 6vw, 74px); line-height: 1.08; font-weight: 650; letter-spacing: -.04em; overflow-wrap: anywhere; }
+.slide p { max-width: 640px; font-size: clamp(18px, 2.5vw, 26px); line-height: 1.5; color: #b7c6df; }
+.presentation-controls { display: flex; justify-content: space-between; align-items: center; gap: 20px; flex-wrap: wrap; margin-top: 22px; }
+.status { display: flex; align-items: center; gap: 8px; color: #9ba9bf; font-size: 14px; }
+nav { display: flex; align-items: center; gap: 20px; font-size: 14px; }
+nav button { display: grid; place-items: center; width: 44px; height: 44px; border: 1px solid #303849; border-radius: 12px; background: #1b202b; color: #d5e3f8; }
+nav button:not(:disabled):hover { background: #263349; }
+@media (max-width: 600px) { .app-header { align-items: flex-start; } .slide { aspect-ratio: auto; min-height: 360px; } .presentation-controls { flex-direction: column; align-items: flex-start; } }
