@@ -63,10 +63,10 @@ export function validateSession(body: unknown) {
   if (
     !Array.isArray(perSlide) ||
     perSlide.length < 1 ||
-    perSlide.length > 60 ||
+    perSlide.length > 2000 ||
     !perSlide.every(isTime)
   )
-    throw bad("perSlide должен содержать от 1 до 60 длительностей в мс.");
+    throw bad("perSlide должен содержать от 1 до 2000 длительностей в мс.");
   if (
     !Array.isArray(slideTitles) ||
     slideTitles.length !== perSlide.length ||

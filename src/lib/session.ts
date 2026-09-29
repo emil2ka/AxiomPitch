@@ -19,7 +19,11 @@ export class SessionClock {
   }
   changeSlide(index: number, time: number) {
     this.tick(time);
+    this.ensureSlides(index + 1);
     this.activeSlide = index;
+  }
+  ensureSlides(count: number) {
+    while (this.perSlide.length < count) this.perSlide.push(0);
   }
   pause(time: number) {
     this.tick(time);

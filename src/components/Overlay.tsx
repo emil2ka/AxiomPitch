@@ -2,6 +2,7 @@ import { useEffect, useRef, useState } from "react";
 import { apiBase } from "../lib/api";
 import { BridgeClient } from "../lib/bridge-client";
 import { Avatar } from "./Avatar";
+import { X } from "lucide-react";
 import type { AvatarHandle } from "./Avatar";
 import "../overlay.css";
 
@@ -15,6 +16,8 @@ function bridgeBase() {
 /** Design-copy mirror, rendered by the existing Electron/WebSocket shell. */
 export function Overlay() {
   const avatar = useRef<AvatarHandle>(null);
+  const bridge = useRef<BridgeClient | null>(null);
+  const [closeError, setCloseError] = useState("");
   const [locked, setLocked] = useState(false);
   useEffect(() => {
     document.documentElement.classList.add("overlay-page");
@@ -30,13 +33,18 @@ export function Overlay() {
       },
       online: online => { if (!online) avatar.current?.clear(); },
     });
+    bridge.current = client;
     client.start();
     return () => {
       client.stop();
+      bridge.current = null;
       document.documentElement.classList.remove("overlay-page");
     };
   }, []);
   return <main className="overlay-notch" aria-label="3D-зеркало спикера">
     <div className="overlay-avatar"><Avatar ref={avatar} locked={locked} face="none" headStyle="ghost" /></div>
+    <button className="overlay-close" aria-label="Скрыть чёлку до следующего выступления" title={closeError || "Скрыть чёлку"} onClick={() => {
+      bridge.current?.setOverlay(false).catch(() => setCloseError("Не удалось скрыть чёлку"));
+    }}><X size={13} /></button>
   </main>;
 }

@@ -27,8 +27,12 @@ export type LiveSession = {
   index: number;
   slideCount: number;
   durationMs: number;
+  id?: string;
+  overlayEnabled?: boolean;
+  overlayDisplayId?: number | null;
 };
 export type OverlayState = { visible: boolean; displayId: number | null };
+export type DisplayInfo = { id: number; label: string; primary: boolean; width: number; height: number };
 export type LiveFrame = Pick<
   VisionFrame,
   "time" | "pose" | "hands" | "poseWorld" | "handWorlds" | "handLabels" | "handScores"
@@ -74,10 +78,10 @@ export function trimFrame(frame: VisionFrame): LiveFrame {
 export function followTarget(
   status: TargetStatus,
   index: number,
-  deckLength: number,
+  _deckLength?: number,
 ): { index: number; estimated: boolean } | null {
   if (status.error || !status.connected) return null;
-  const clamp = (value: number) => Math.max(0, Math.min(deckLength - 1, value));
+  const clamp = (value: number) => Math.max(0, Math.min(status.slideCount === null ? 1999 : status.slideCount - 1, value));
   if (status.slideIndex !== null)
     return { index: clamp(status.slideIndex), estimated: false };
   if (!status.gesture) return null;
@@ -157,6 +161,14 @@ export class BridgeClient {
       targets: TargetInfo[];
       apps: AppRef[];
     }>("/api/targets", {}, this.base);
+  }
+
+  state() {
+    return request<TargetStatus>("/api/control/state", {}, this.base);
+  }
+
+  overlaySettings() {
+    return request<OverlayState & { displays: DisplayInfo[]; shellConnected: boolean }>("/api/overlay", {}, this.base);
   }
 
   connectTarget(app: TargetId, process?: string) {

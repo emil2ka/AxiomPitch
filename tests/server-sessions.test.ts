@@ -46,6 +46,15 @@ test("duration must equal the sum of perSlide exactly", async () => {
   assert.match((await skewed.json()).error, /сумме perSlide/);
 });
 
+test("external session results over the PDF page limit are saved without truncation", async () => {
+  const body = result();
+  body.perSlide = Array(100).fill(0);
+  body.perSlide[80] = 1234;
+  body.duration = 1234;
+  body.slideTitles = body.perSlide.map((_, i) => `Слайд ${i + 1}`);
+  assert.equal((await post(body)).status, 201);
+});
+
 test("an unknown correction code is rejected", async () => {
   const body = result();
   body.corrections = { wider: 1, nervous: 2 };

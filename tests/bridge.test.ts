@@ -19,6 +19,26 @@ test("next and previous each reach the app exactly once", async () => {
   assert.equal(back?.slideIndex, 0);
 });
 
+test("polling reads changes made inside the app and reports an unavailable target", async () => {
+  const target = new FakeTarget();
+  const bridge = new Bridge([target], () => {}, "keynote");
+  target.state = { slideIndex: 14, slideCount: 18 };
+  assert.equal((await bridge.state()).slideIndex, 14);
+  assert.equal(target.count("next"), 0);
+  target.available = async () => false;
+  const unavailable = await bridge.state();
+  assert.equal(unavailable.app, "keynote");
+  assert.equal(unavailable.connected, false);
+  assert.match(unavailable.error!, /недоступно/);
+});
+
+test("an unreadable Keynote show is an error rather than a guessed position", async () => {
+  const bridge = new Bridge([new FakeTarget("keynote", null)], () => {}, "keynote");
+  const status = await bridge.state();
+  assert.equal(status.slideIndex, null);
+  assert.match(status.error!, /Запусти показ/);
+});
+
 test("toggle is the gesture lock: it never calls next or previous", async () => {
   const target = new FakeTarget();
   const bridge = new Bridge([target], () => {}, "keynote");

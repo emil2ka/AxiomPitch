@@ -43,3 +43,11 @@
 }
 
 @media (max-width: 700px) { .studio .bridge-integration { grid-column: 1 / -1; } }
+.bridge-setting { display: flex; align-items: center; gap: 8px; margin: 12px 0; font-size: 12px; line-height: 1.5; }
+.bridge-setting input[type="checkbox"] { flex: 0 0 auto; accent-color: #7e91ef; }
+.bridge-setting select, .bridge-setting input[type="number"] { min-width: 0; max-width: 150px; padding: 5px; color: inherit; background: #121620; border: 1px solid #2b3140; border-radius: 6px; }
+.external-show-placeholder { aspect-ratio: 16 / 9; display: flex; flex-direction: column; justify-content: center; align-items: center; gap: 14px; padding: 32px; text-align: center; background: #0d111a; border-radius: 12px; }
+.external-show-placeholder p { max-width: 420px; color: #8c96a8; font-size: 13px; line-height: 1.6; }
+.studio [hidden] { display: none !important; }
+.studio .workspace-grid.external-without-preview { grid-template-columns: minmax(0, 1fr) 250px; }
+@media (max-width: 760px) { .studio .workspace-grid.external-without-preview { grid-template-columns: minmax(0, 1fr); } }

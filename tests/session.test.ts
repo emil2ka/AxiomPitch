@@ -44,3 +44,15 @@ test("session result is a snapshot, not a reference to mutable counters", () => 
   assert.equal(result.corrections.wider, 1);
   assert.equal(result.duration, 1500);
 });
+test("external timing extends past the PDF while keeping pauses excluded", () => {
+  const clock = new SessionClock(2, 0, 0);
+  clock.changeSlide(8, 1000);
+  clock.pause(3000);
+  clock.ensureSlides(12);
+  clock.resume(5000);
+  clock.tick(6000);
+  assert.equal(clock.perSlide.length, 12);
+  assert.equal(clock.perSlide[0], 1000);
+  assert.equal(clock.perSlide[8], 3000);
+  assert.equal(clock.duration, 4000);
+});

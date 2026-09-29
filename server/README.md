@@ -95,9 +95,9 @@ PitchFlow. Удержание ладони (`toggle`) — это блокиро�
 
 | Сообщение  | Кто шлёт       | Поля                                                              |
 | ---------- | -------------- | ----------------------------------------------------------------- |
-| `frame`    | вкладка        | `time, pose, hands, poseWorld?, handWorlds?, handLabels?`         |
+| `frame`    | вкладка        | `time, pose, hands, poseWorld?, handWorlds?, handLabels?, handScores?` |
 | `command`  | вкладка        | `gesture: next \| previous \| toggle, locked`                     |
-| `session`  | вкладка        | `stage, mode, index, slideCount, durationMs`                      |
+| `session`  | вкладка        | `stage, mode, index, slideCount, durationMs, id?, overlayEnabled?, overlayDisplayId?` |
 | `target`   | мост           | `app, label, connected, slideIndex, slideCount, gesture?, error?` |
 | `overlay`  | мост           | `visible, displayId`                                              |
 | `control`  | мост → вкладка | `gesture`: шаг колоды PitchFlow по `POST /api/control`            |
@@ -137,9 +137,12 @@ PitchFlow. Удержание ладони (`toggle`) — это блокиро�
   экрана, а чёлка осталась видимой (проверено по CGWindowList). Страница
   чёлки рисует аватар через WebGL, получает позу, замок и факт сессии.
 
-На встроенном дисплее MacBook отступ 10 px считается от нижнего края
-полосы с камерой, иначе вырез закрывает голову аватара. На внешнем мониторе
-чёлка стоит ровно в 10 px от верхнего края.
+В текущей версии отступа нет: на MacBook верх окна совпадает с верхним краем
+экрана. Чёрный корпус продолжается за физический вырез, а аватар и крестик
+располагаются ниже него; на экране без выреза добавочная высота равна нулю.
+Геометрия выреза читается Swift-помощником AppKit, который `npm run overlay`
+компилирует через установленный `xcrun swiftc`. По умолчанию выбирается MacBook;
+другой экран и работа без чёлки доступны в настройках студии. Кликабелен только крестик.
 
 
 После переноса интерфейса размер чёлки — 220×80; внешний вид взят из

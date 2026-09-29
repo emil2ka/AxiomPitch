@@ -33,11 +33,17 @@ test("Keynote's own slide number wins and is not an estimate", () => {
     followTarget(keynote({ slideIndex: 6, slideCount: 12 }), 2, 10),
     { index: 6, estimated: false },
   );
-  // A shorter PDF in the console cannot index past its own last slide.
+  // The external number is independent of the shorter PDF preview.
   assert.deepEqual(
     followTarget(keynote({ slideIndex: 11, slideCount: 12 }), 2, 10),
-    { index: 9, estimated: false },
+    { index: 11, estimated: false },
   );
+});
+
+test("an unknown external count never uses the PDF length as an end boundary", () => {
+  assert.deepEqual(followTarget(keynote({}), 12, 5), { index: 13, estimated: true });
+  assert.deepEqual(followTarget(keynote({ slideCount: 14 }), 13, 5), { index: 13, estimated: true });
+  assert.equal(followTarget(keynote({ gesture: undefined }), 12, 5), null);
 });
 
 test("a refused step does not move the console at all", () => {

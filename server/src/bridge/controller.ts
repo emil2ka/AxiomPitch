@@ -141,6 +141,8 @@ export class Bridge {
   private async snapshot(): Promise<TargetStatus> {
     const target = this.current;
     if (!target) return this.idle();
+    if (!(await target.available().catch(() => false)))
+      return { type: "target", app: target.id, label: target.label, connected: false, slideIndex: null, slideCount: null, error: `${target.label} недоступно. Открой приложение и восстанови показ.` };
     const state = await target.readState().catch(() => null);
     return {
       type: "target",
@@ -149,6 +151,9 @@ export class Bridge {
       connected: true,
       slideIndex: state?.slideIndex ?? null,
       slideCount: state?.slideCount ?? null,
+      ...(!state && (target.id === "keynote" || target.id === "powerpoint")
+        ? { error: `Не удалось прочитать показ ${target.label}. Запусти показ слайдов и проверь разрешение macOS «Автоматизация».` }
+        : {}),
     };
   }
 

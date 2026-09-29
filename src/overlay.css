@@ -1,4 +1,6 @@
 html.overlay-page, html.overlay-page body { min-width: 0; background: transparent; overflow: hidden; }
 html.overlay-page body { width: 100vw; margin: 0; }
-.overlay-notch { height: 100svh; position: relative; overflow: hidden; background: #030406; border-radius: 0 0 18px 18px; }
-.overlay-avatar { position: absolute; inset: 4px 0; }
+.overlay-notch { --housing: max(0px, calc(100svh - 80px)); height: 100svh; position: relative; overflow: hidden; background: #000; border-radius: 0 0 18px 18px; }
+.overlay-avatar { position: absolute; inset: calc(var(--housing) + 4px) 0 4px; }
+.overlay-close { position: absolute; z-index: 2; top: calc(var(--housing) + 6px); right: 6px; width: 24px; height: 24px; padding: 0; border: 0; border-radius: 50%; background: transparent; color: #717887; display: grid; place-items: center; cursor: pointer; }
+.overlay-close:hover, .overlay-close:focus-visible { color: white; background: #ffffff18; }

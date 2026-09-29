@@ -1,5 +1,8 @@
 import { app, BrowserWindow, screen, session } from "electron";
 import type { Display } from "electron";
+import { execFile } from "node:child_process";
+import { fileURLToPath } from "node:url";
+import { notchBounds, notchSize, overClose } from "./geometry.ts";
 
 /**
  * The notch on the audience screen: a click-through, never-focused window
@@ -9,8 +12,9 @@ import type { Display } from "electron";
 const pageOrigin = process.env.PITCHFLOW_ORIGIN ?? "http://localhost:5173";
 const bridgeOrigin = process.env.PITCHFLOW_BRIDGE ?? "http://127.0.0.1:8787";
 const pageUrl = `${pageOrigin}/?overlay=1&bridge=${encodeURIComponent(bridgeOrigin)}`;
-const size = { width: 220, height: 80 };
-const topMargin = 10;
+const size = notchSize;
+let geometry: { id: number; safeTop: number; center: number }[] = [];
+let pointerTimer: ReturnType<typeof setInterval> | undefined;
 
 let win: BrowserWindow | null = null;
 let socket: WebSocket | null = null;
@@ -20,13 +24,14 @@ let wanted = { visible: false, displayId: null as number | null };
 if (process.platform === "darwin") app.setActivationPolicy("accessory");
 app.dock?.hide();
 
-/** The chosen display, else the external monitor, else the main one. */
+/** Default to the Mac's physical notch, with an explicit display override. */
 function pickDisplay(id: number | null): Display {
   const displays = screen.getAllDisplays();
   const primary = screen.getPrimaryDisplay();
   return (
     displays.find((display) => display.id === id) ??
-    displays.find((display) => display.id !== primary.id) ??
+    displays.find((display) => geometry.some(item => item.id === display.id && item.safeTop > 0)) ??
+    displays.find((display) => display.internal) ??
     primary
   );
 }
@@ -35,16 +40,21 @@ function place() {
   if (!win) return;
   const display = pickDisplay(wanted.displayId);
   const { bounds } = display;
-  // A built-in MacBook screen hides its camera housing behind the menu-bar
-  // strip even in full screen, so the margin starts below that strip there.
-  const housing = display.internal ? display.workArea.y - bounds.y : 0;
-  win.setBounds({
-    x: Math.round(bounds.x + (bounds.width - size.width) / 2),
-    y: bounds.y + housing + topMargin,
-    ...size,
-  });
+  const native = geometry.find(item => item.id === display.id);
+  win.setBounds(notchBounds(bounds, native?.safeTop, native?.center));
+  if (process.env.PITCHFLOW_OVERLAY_DEBUG === "1") console.info("[overlay]", JSON.stringify({ bounds: win.getBounds(), safeTop: native?.safeTop ?? 0, visible: wanted.visible }));
   if (wanted.visible) win.showInactive();
   else win.hide();
+}
+
+function refreshGeometry() {
+  if (process.platform !== "darwin") return place();
+  execFile(fileURLToPath(new URL("../work/overlay/screen-geometry", import.meta.url)), [], { timeout: 3000 }, (error, stdout) => {
+    if (!error) {
+      try { geometry = JSON.parse(stdout); } catch { /* Retain last known geometry. */ }
+    }
+    place();
+  });
 }
 
 function displays() {
@@ -96,7 +106,11 @@ function connect() {
     place();
   });
   current.addEventListener("close", () => {
-    if (socket === current) socket = null;
+    if (socket === current) {
+      socket = null;
+      wanted.visible = false;
+      place();
+    }
     setTimeout(connect, 1500);
   });
   current.addEventListener("error", () => current.close());
@@ -111,6 +125,7 @@ function createWindow() {
     transparent: true,
     backgroundColor: "#00000000",
     hasShadow: false,
+    roundedCorners: false,
     resizable: false,
     movable: false,
     minimizable: false,
@@ -133,6 +148,12 @@ function createWindow() {
   win.setAlwaysOnTop(true, "screen-saver");
   win.setVisibleOnAllWorkspaces(true, { visibleOnFullScreen: true });
   win.setIgnoreMouseEvents(true);
+  // Keep the avatar click-through. Only the close button receives clicks;
+  // polling also works when the cursor arrives from another full-screen app.
+  pointerTimer = setInterval(() => {
+    if (win && !win.isDestroyed())
+      win.setIgnoreMouseEvents(!win.isVisible() || !overClose(screen.getCursorScreenPoint(), win.getBounds()));
+  }, 50);
   win.webContents.setWindowOpenHandler(() => ({ action: "deny" }));
   win.webContents.on("will-navigate", (event) => event.preventDefault());
   // Vite may start after the notch: keep retrying instead of showing an error page.
@@ -152,7 +173,7 @@ void app.whenReady().then(() => {
     (_contents, _permission, callback) => callback(false),
   );
   createWindow();
-  place();
+  refreshGeometry();
   connect();
   for (const event of [
     "display-added",
@@ -161,8 +182,9 @@ void app.whenReady().then(() => {
   ] as const)
     screen.on(event as "display-added", () => {
       report();
-      place();
+      refreshGeometry();
     });
 });
 
 app.on("window-all-closed", () => app.quit());
+app.on("before-quit", () => clearInterval(pointerTimer));

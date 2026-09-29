@@ -80,13 +80,7 @@ export function controlRoutes(
       }
       if (action === "state" && req.method === "GET") {
         const status = await bridge.state();
-        sendJson(res, 200, {
-          app: status.app,
-          connected: status.connected,
-          slideIndex: status.slideIndex,
-          slideCount: status.slideCount,
-          locked: bridge.locked,
-        });
+        sendJson(res, 200, { ...status, locked: bridge.locked });
         return true;
       }
       return false;
@@ -120,7 +114,7 @@ export function controlRoutes(
           throw new HttpError(400, "Такого дисплея нет.");
         const overlay = hub.setOverlay(
           visible,
-          typeof displayId === "number" ? displayId : null,
+          displayId === undefined ? hub.overlay.displayId : typeof displayId === "number" ? displayId : null,
         );
         sendJson(res, 200, {
           visible: overlay.visible,

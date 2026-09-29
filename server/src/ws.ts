@@ -32,6 +32,9 @@ export type LiveSession = {
   index: number;
   slideCount: number;
   durationMs: number;
+  id?: string;
+  overlayEnabled?: boolean;
+  overlayDisplayId?: number | null;
 };
 export type OverlayState = {
   type: "overlay";
@@ -136,13 +139,26 @@ export function parseSession(
       stage !== "paused" &&
       stage !== "finished") ||
     (mode !== "rehearsal" && mode !== "live") ||
-    !count(slideCount, 60) ||
+    !count(slideCount, 2000) ||
     !count(index, Math.max(0, slideCount - 1)) ||
     !finite(durationMs) ||
     durationMs < 0
   )
     return null;
-  return { type: "session", stage, mode, index, slideCount, durationMs };
+  const session: LiveSession = { type: "session", stage, mode, index, slideCount, durationMs };
+  if (message.id !== undefined) {
+    if (typeof message.id !== "string" || message.id.length > 100) return null;
+    session.id = message.id;
+  }
+  if (message.overlayEnabled !== undefined) {
+    if (typeof message.overlayEnabled !== "boolean") return null;
+    session.overlayEnabled = message.overlayEnabled;
+  }
+  if (message.overlayDisplayId !== undefined) {
+    if (message.overlayDisplayId !== null && !Number.isInteger(message.overlayDisplayId)) return null;
+    session.overlayDisplayId = message.overlayDisplayId as number | null;
+  }
+  return session;
 }
 
 function parseDisplays(value: unknown): DisplayInfo[] | null {
@@ -184,6 +200,10 @@ export class LiveHub {
   displays: DisplayInfo[] = [];
   private locked = false;
   private session: LiveSession | null = null;
+  private owner: WebSocket | null = null;
+  private dismissed = false;
+  private lastSession = 0;
+  private watchdog: ReturnType<typeof setInterval>;
   private server = new WebSocketServer({
     noServer: true,
     maxPayload: 512 * 1024,
@@ -198,6 +218,11 @@ export class LiveHub {
   ) {
     this.allowOrigin = allowOrigin;
     this.events = events;
+    this.watchdog = setInterval(() => {
+      if (this.session?.overlayEnabled !== undefined && this.overlay.visible && Date.now() - this.lastSession > 5000)
+        this.updateOverlay(false, this.overlay.displayId);
+    }, 1000);
+    this.watchdog.unref();
   }
 
   /** Accepts /live?role=… from allowed origins only; a foreign page is refused. */
@@ -236,6 +261,15 @@ export class LiveHub {
   }
 
   setOverlay(visible: boolean, displayId: number | null) {
+    this.dismissed = !visible;
+    // A closed or disabled session cannot leave a stale floating window.
+    if (this.session?.overlayEnabled !== undefined &&
+        (!this.session.overlayEnabled || !["running", "paused"].includes(this.session.stage))) visible = false;
+    return this.updateOverlay(visible, displayId);
+  }
+
+  private updateOverlay(visible: boolean, displayId: number | null) {
+    if (this.overlay.visible === visible && this.overlay.displayId === displayId) return this.overlay;
     this.overlay = { type: "overlay", visible, displayId };
     this.broadcast(this.overlay);
     return this.overlay;
@@ -249,6 +283,7 @@ export class LiveHub {
   }
 
   close() {
+    clearInterval(this.watchdog);
     for (const ws of this.clients.keys()) ws.terminate();
     this.clients.clear();
     this.server.close();
@@ -273,13 +308,19 @@ export class LiveHub {
       } catch {
         return;
       }
-      if (isRecord(message)) this.receive(role, message);
+      if (isRecord(message)) this.receive(role, message, ws);
     });
-    ws.on("close", () => this.clients.delete(ws));
+    ws.on("close", () => {
+      this.clients.delete(ws);
+      if (this.owner === ws) {
+        this.owner = null;
+        this.updateOverlay(false, this.overlay.displayId);
+      }
+    });
     ws.on("error", () => ws.terminate());
   }
 
-  private receive(role: Role, message: Record<string, unknown>) {
+  private receive(role: Role, message: Record<string, unknown>, ws: WebSocket) {
     if (role === "shell" && message.type === "displays") {
       this.displays = parseDisplays(message.displays) ?? this.displays;
       return;
@@ -298,6 +339,15 @@ export class LiveHub {
     } else if (message.type === "session") {
       const session = parseSession(message);
       if (!session) return;
+      const active = session.stage === "running" || session.stage === "paused";
+      // An idle second studio tab must not hide the active tab's notch.
+      if (this.owner && this.owner !== ws) return;
+      if (session.overlayEnabled !== undefined) {
+        if (session.id !== this.session?.id || (!this.session?.overlayEnabled && session.overlayEnabled)) this.dismissed = false;
+        this.owner = active ? ws : null;
+        this.lastSession = Date.now();
+        this.updateOverlay(active && session.overlayEnabled && !this.dismissed, session.overlayDisplayId ?? null);
+      }
       this.session = session;
       this.broadcast(session, ["overlay"]);
       this.events.onSession?.(session);
