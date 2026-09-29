@@ -94,3 +94,62 @@ export function buildHandSurface(bindings: FingerBinding[], material: THREE.Mate
   geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute(weights, 4));
   return geometry;
 }
+
+/** An intentionally sparse, ordered cage for the hollow speaker mirror.
+ * Rings follow the palm and finger joints, rather than a triangulated scan. */
+export function buildHandCage(bindings: FingerBinding[]) {
+  const positions: number[] = [], triangles: number[] = [], bones: number[] = [], weights: number[] = [];
+  const point = new THREE.Vector3();
+  const addVertex = (p: THREE.Vector3, indices: number[], influence: number[]) => {
+    positions.push(p.x, p.y, p.z);
+    bones.push(...indices);
+    weights.push(...influence);
+  };
+  const connectRings = (start: number, rings: number, sides: number) => {
+    for (let ring = 0; ring < rings - 1; ring++) for (let side = 0; side < sides; side++) {
+      const a = start + ring * sides + side, b = start + ring * sides + (side + 1) % sides;
+      const c = a + sides, d = b + sides;
+      triangles.push(a, c, b, b, c, d);
+    }
+  };
+  const palm = [
+    [-.25, .06, .028], [-.18, .095, .044], [-.10, .14, .056],
+    [-.02, .155, .060], [.06, .145, .050], [.13, .12, .033],
+  ];
+  for (const [y, width, depth] of palm) for (let side = 0; side < 10; side++) {
+    const angle = side * Math.PI * 2 / 10;
+    addVertex(point.set(Math.cos(angle) * width, y, Math.sin(angle) * depth), [0, 0, 0, 0], [1, 0, 0, 0]);
+  }
+  connectRings(0, palm.length, 10);
+  for (const binding of bindings) {
+    const start = positions.length / 3;
+    const [a, b, c] = binding.segments;
+    const ringHeights = [0, a * .5, a, a + b, a + b + c * .65, a + b + c];
+    ringHeights.forEach((y, ring) => {
+      const total = a + b + c;
+      const radius = binding.radius * (ring === ringHeights.length - 1 ? .12 : 1 - .18 * y / total);
+      const segment = y < a ? 0 : 1;
+      const blend = THREE.MathUtils.clamp((y - (segment ? a : 0)) / binding.segments[segment], 0, 1);
+      const influence = THREE.MathUtils.clamp(y / .055, 0, 1);
+      for (let side = 0; side < 8; side++) {
+        const angle = side * Math.PI * 2 / 8;
+        point.set(Math.cos(angle) * radius, y, Math.sin(angle) * radius * .85).applyMatrix4(binding.matrix);
+        addVertex(point, [0, binding.firstIndex + segment, binding.firstIndex + segment + 1, 0], [1 - influence, influence * (1 - blend), influence * blend, 0]);
+      }
+    });
+    connectRings(start, ringHeights.length, 8);
+  }
+  const geometry = new THREE.BufferGeometry();
+  geometry.setAttribute("position", new THREE.Float32BufferAttribute(positions, 3));
+  geometry.setAttribute("skinIndex", new THREE.Uint16BufferAttribute(bones, 4));
+  geometry.setAttribute("skinWeight", new THREE.Float32BufferAttribute(weights, 4));
+  geometry.setIndex(triangles);
+  geometry.computeVertexNormals();
+  // Each quad has two triangles, but its internal diagonal stays invisible.
+  const cage = geometry.toNonIndexed();
+  geometry.dispose();
+  const grid: number[] = [];
+  for (let i = 0; i < triangles.length; i += 6) grid.push(0, 0, 1, 0, 0, 1, 1, 0, 0, 1, 0, 0);
+  cage.setAttribute("gridCoord", new THREE.Float32BufferAttribute(grid, 2));
+  return cage;
+}

@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, ArrowRight, Camera, CameraOff, Check, Hand, LoaderCircle, RotateCcw } from "lucide-react";
 import { Avatar } from "./Avatar";
+import { TeachingCompanion } from "./TeachingCompanion";
 import type { AvatarHandle } from "./Avatar";
 import { PitchBrand } from "./Landing";
 import { useCamera } from "../hooks/useCamera";
@@ -35,7 +36,6 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: () => void }) {
   const demoUntil = useRef(0);
   const advanceGate = useRef<AdvanceGate | null>(null);
   const reduced = !!useReducedMotion();
-  const lesson = lessons[step];
 
   const moveToStep = useCallback((nextStep: number, autoplay = false) => {
     const next = createPractice(nextStep);
@@ -203,7 +203,6 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: () => void }) {
   const visibleSlide = active || practice.passed ? practice.slide : demoSlide;
   const passed = practice.passed;
   const holdStep = step === 3 || step === 4;
-  const motionMode = active ? null : passed ? "success" : step === 5 ? demoSequence === 2 ? "previous" : "next" : lesson.motion;
 
   const coursePassed = [0, 1, 2, 3, 4, 5].every(stage => verified.has(stage));
   const titles = ["Покажи открытую ладонь", "Переключи слайд вперёд", "Верни предыдущий слайд", "Выключи управление жестами", "Включи управление снова", "Попробуй три движения подряд", coursePassed ? "Обучение пройдено" : "Все жесты в одном месте"];
@@ -224,7 +223,6 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: () => void }) {
     : expected === "previous" ? "Открытая ладонь влево ←. Слайд вернётся назад."
     : "Открытая ладонь вправо →. Слайд переключится вперёд.";
   const guidance = cameraError || (passed || active ? feedback.message : step === 6 ? "Продолжай в своём темпе." : exampleHint);
-  const direction = expected === "previous" ? -1 : 1;
   const holdProgress = active ? feedback.progress ?? 0 : passed ? 1 : 0;
 
   const primaryAction = step < 6 ? <button className="learn-primary" onClick={passed ? () => moveToStep(step + 1, runningRef.current) : begin}>{passed ? <Check size={17} /> : cameraStatus === "loading" ? <LoaderCircle className="spin" size={17} /> : <Hand size={17} />}{passed ? "Следующее упражнение" : cameraStatus === "loading" ? "Отменить подключение" : active ? "Начать попытку заново" : cameraStatus === "ready" ? "Теперь мой ход" : "Попробовать с камерой"}</button> : <button className="learn-primary" onClick={onEnterStudio}>Перейти в студию <ArrowRight size={17} /></button>;
@@ -245,15 +243,13 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: () => void }) {
       <div className="learning-workspace">
         <section className="learning-stage" aria-label="Демонстрация жеста">
           <div className={`learning-feedback ${cameraError ? "error" : feedback.kind}`} role="status" aria-live="polite" aria-atomic="true"><span className="learning-feedback-icon">{passed ? <Check size={19} /> : feedback.kind === "error" || cameraError ? <Hand size={19} /> : <span className="learn-status-dot" />}</span><div><strong>{cameraError ? "Камера не подключилась" : passed ? "Жест принят" : active ? "Твой ход" : "Пример"}</strong><p>{guidance}</p>{active && feedback.progress !== undefined && <div className="learning-feedback-progress"><span style={{ width: `${holdProgress * 100}%` }} /></div>}</div></div>
-          <div className="learning-avatar"><Avatar transitionName="speaker" key={replay} ref={avatar} locked={practice.locked} face="none" headStyle="ghost" lesson={motionMode} /></div>
-          {(step === 1 || step === 2 || step === 5) && <div className={`learning-motion-path ${direction < 0 ? "backward" : ""}`} aria-hidden="true"><span /><motion.i key={`${step}-${replay}-${practice.sequence}`} animate={reduced || active || passed ? { x: 0 } : { x: [-55, -55, 55, 55, -55] }} transition={{ duration: 4.6, times: [0, .2, .5, .73, 1], repeat: Infinity }}><ArrowRight size={24} /></motion.i><small>{direction < 0 ? "Ладонь влево" : "Ладонь вправо"}</small></div>}
-          {holdStep && <div className="learning-hold-indicator"><svg viewBox="0 0 64 64" aria-hidden="true"><circle cx="32" cy="32" r="28" fill="none" stroke="#ffffff16" strokeWidth="3" /><motion.circle key={`${step}-${active}-${replay}`} cx="32" cy="32" r="28" fill="none" stroke="#b8bdc6" strokeWidth="3" strokeLinecap="round" style={{ rotate: -90, transformOrigin: "32px 32px" }} initial={false} animate={{ pathLength: active || passed ? holdProgress : reduced ? .6 : [0, 1, 1, 0] }} transition={{ duration: active ? .12 : passed || reduced ? 0 : 4.6, times: active || passed || reduced ? undefined : [0, .33, .75, 1], repeat: active || passed || reduced ? 0 : Infinity }} /></svg><strong>{active ? `${(holdProgress * 1.5).toFixed(1)} / 1,5 сек.` : "Удержи 1,5 сек."}</strong></div>}
+          <div className="learning-avatar"><Avatar transitionName="speaker" key={replay} ref={avatar} locked={practice.locked} face="none" headStyle="ghost" /></div>
           <div className="learning-stage-bottom">
             <aside className={`learning-camera ${cameraOn ? "on" : ""}`} aria-label="Твой кадр"><div className="learning-camera-header"><span><i />{cameraStatus === "ready" ? handDetected ? "Ладонь в кадре" : "Покажи ладонь" : "Твой кадр"}</span>{cameraOn && <button onClick={() => { pendingPractice.current = false; cameraStop(); }} aria-label="Выключить камеру"><CameraOff size={14} /></button>}</div><div className="learning-camera-view"><video ref={videoRef} className={cameraStatus === "ready" ? "visible" : ""} muted playsInline aria-hidden={cameraStatus !== "ready"} aria-label="Зеркальное превью камеры" />{cameraStatus !== "ready" && <button onClick={begin} aria-label={cameraStatus === "loading" ? "Отменить подключение камеры" : "Включить камеру"}>{cameraStatus === "loading" ? <LoaderCircle className="spin" size={20} /> : <Camera size={20} />}<span>{cameraStatus === "loading" ? "Подключаем…" : "Включить камеру"}</span></button>}</div></aside>
             <div className="learning-presentation" aria-label="Учебная презентация"><span className="learning-preview-label">{practice.locked ? "Жесты выключены" : "Твоя презентация"}</span><div className="learning-slide"><motion.img key={visibleSlide} src={`/demo-deck/slide-${visibleSlide + 1}.jpg`} alt={slideTitles[visibleSlide]} initial={reduced ? false : { opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} /></div><span className="learning-slide-count">{visibleSlide + 1} / {slideTitles.length}</span></div>
           </div>
         </section>
-        <aside className="learning-instructions" aria-label="Как выполнить упражнение"><div className="learning-companion-guide"><img className="learning-companion-photo" src="/companion/teaching/mascot.png" alt="Твой компаньон показывает открытую ладонь" /><div className="learning-hand-example"><motion.img key={`${step}-${replay}-${demoSequence}`} src={`/companion/teaching/hand-${direction < 0 ? "left" : "right"}.png`} alt="Открытая ладонь: пальцы раскрыты, кисть направлена к камере" animate={reduced || holdStep || step === 0 || step === 6 ? {x:0} : {x:direction > 0 ? [-25,-25,25,25,-25] : [25,25,-25,-25,25]}} transition={{duration:4.6,times:[0,.2,.5,.73,1],repeat:Infinity,ease:"easeInOut"}} /><span>{holdStep ? "1,5 сек." : step === 0 ? "Ладонь к камере" : direction < 0 ? "← Влево" : "Вправо →"}</span></div></div><div className="learning-instruction-heading"><span>{step < 6 ? "КАК СДЕЛАТЬ" : "ЧТО ДАЛЬШЕ"}</span><span>{holdStep ? "1,5 сек." : "Одна ладонь"}</span></div><ol>{instructions.map((instruction, i) => <li key={`${step}-${i}`}><span>{i + 1}</span><p>{instruction}</p></li>)}</ol>
+        <aside className="learning-instructions" aria-label="Как выполнить упражнение"><TeachingCompanion key={`${step}-${replay}-${demoSequence}`} gesture={expected} playing={!active && !passed && step < 6} /><div className="learning-instruction-heading"><span>{step < 6 ? "КАК СДЕЛАТЬ" : "ЧТО ДАЛЬШЕ"}</span><span>{holdStep ? "1,5 сек." : "Одна ладонь"}</span></div><ol>{instructions.map((instruction, i) => <li key={`${step}-${i}`}><span>{i + 1}</span><p>{instruction}</p></li>)}</ol>
           {step === 5 && <div className="learning-sequence" aria-label="Последовательность мини-репетиции">{["Вперёд", "Вперёд", "Назад"].map((label, i) => <span key={i} className={i < practice.sequence ? "done" : i === (active || passed ? practice.sequence : demoSequence) ? "current" : ""}>{i < practice.sequence ? <Check size={14} /> : i === 2 ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}{label}</span>)}</div>}
           <div className="learning-actions">{step < 6 ? <>{primaryAction}<button className="learn-secondary" onClick={showExample}><RotateCcw size={15} />Повторить пример</button>{running && <button className="learn-next-example" onClick={pausePractice}>Приостановить практику</button>}</> : <><button className="learn-primary" onClick={onEnterStudio}>Перейти в студию <ArrowRight size={17} /></button><button className="learn-secondary" onClick={() => { setVerified(new Set()); chooseStep(0); }}>Пройти ещё раз</button></>}</div><p className="learning-privacy">Камера остаётся на устройстве.</p>
         </aside>

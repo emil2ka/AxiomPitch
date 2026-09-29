@@ -1,6 +1,6 @@
 import * as THREE from "three";
 import { mergeGeometries } from "three/addons/utils/BufferGeometryUtils.js";
-import { buildHandSurface } from "./hand-mesh";
+import { buildHandCage, buildHandSurface } from "./hand-mesh";
 import type { FingerBinding } from "./hand-mesh";
 import { headOrientation } from "./avatar-tracking";
 import { HandPoseTracker } from "./hand-tracking";
@@ -132,10 +132,23 @@ export function createAvatarScene(
     material.sheen = 0.22;
     material.clearcoatRoughness = 0.38;
     if (ghostHead) {
-      material.wireframe = true;
-      material.color.setHex(0x9ba8b8);
+      // Draw the ordered quad grid without the diagonal of every triangle.
+      material.onBeforeCompile = shader => {
+        shader.vertexShader = "attribute vec2 gridCoord; varying vec2 vGridCoord;\n" + shader.vertexShader;
+        shader.vertexShader = shader.vertexShader.replace("#include <begin_vertex>", "#include <begin_vertex>\nvGridCoord = gridCoord;");
+        shader.fragmentShader = "varying vec2 vGridCoord;\n" + shader.fragmentShader;
+        shader.fragmentShader = shader.fragmentShader.replace("#include <alphatest_fragment>", `
+          vec2 gridWidth = fwidth(vGridCoord) * 1.0;
+          vec2 gridInterior = smoothstep(vec2(0.0), gridWidth, vGridCoord);
+          diffuseColor.a *= 1.0 - min(gridInterior.x, gridInterior.y);
+          if (diffuseColor.a < .015) discard;
+          #include <alphatest_fragment>
+        `);
+      };
+      material.customProgramCacheKey = () => "speaker-quad-grid";
+      material.color.setHex(0xbec7d0);
       material.transparent = true;
-      material.opacity = .48;
+      material.opacity = .75;
       material.depthWrite = false;
       material.emissiveIntensity = 0;
       material.clearcoat = 0;
@@ -336,7 +349,7 @@ export function createAvatarScene(
       }
       fingers.push(chain);
     });
-    const geometry = buildHandSurface(bindings, palmMaterial, ghostHead ? 28 : 96);
+    const geometry = ghostHead ? buildHandCage(bindings) : buildHandSurface(bindings, palmMaterial);
     resources.push(geometry);
     const mesh = new THREE.SkinnedMesh(geometry, palmMaterial);
     mesh.frustumCulled = false;
@@ -379,7 +392,7 @@ export function createAvatarScene(
           const splay =
             index === 0 ? [-0.06, -0.02, 0.04, 0.12, 0.1][finger] : 0;
           return new THREE.Quaternion().setFromEuler(
-            new THREE.Euler(curl, 0, (index === 0 ? bone.rotation.z : 0) + splay),
+            new THREE.Euler(ghostHead ? .05 : curl, 0, (index === 0 ? bone.rotation.z : 0) + (ghostHead ? 0 : splay)),
           );
         }),
       ),
