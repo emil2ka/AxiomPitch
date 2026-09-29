@@ -8,7 +8,11 @@ before(async () => {
 });
 after(() => server.stop());
 
-function upload(bytes: Uint8Array, name = "deck.pdf", extra?: [string, string]) {
+function upload(
+  bytes: Uint8Array,
+  name = "deck.pdf",
+  extra?: [string, string],
+) {
   const form = new FormData();
   form.append("file", new Blob([bytes], { type: "application/pdf" }), name);
   if (extra) form.append(...extra);
@@ -46,7 +50,10 @@ test("a small PDF is stored, counted by the server and served back to localhost"
   const created = await response.json();
   assert.equal(created.name, "Первый питч");
   assert.equal(created.pageCount, 3);
-  assert.equal(created.url, `${server.base}/api/presentations/${created.id}/file`);
+  assert.equal(
+    created.url,
+    `${server.base}/api/presentations/${created.id}/file`,
+  );
 
   const list = await (await fetch(`${server.base}/api/presentations`)).json();
   assert.deepEqual(
@@ -60,7 +67,10 @@ test("a small PDF is stored, counted by the server and served back to localhost"
   const notesUrl = `${server.base}/api/presentations/${created.id}/notes`;
   const short = await fetch(notesUrl, json({ notes: ["одна"] }, "PATCH"));
   assert.equal(short.status, 400);
-  const saved = await fetch(notesUrl, json({ notes: ["а", "б", "в"] }, "PATCH"));
+  const saved = await fetch(
+    notesUrl,
+    json({ notes: ["а", "б", "в"] }, "PATCH"),
+  );
   assert.equal(saved.status, 200);
   const again = await (
     await fetch(`${server.base}/api/presentations/${created.id}`)
