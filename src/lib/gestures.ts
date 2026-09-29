@@ -52,6 +52,7 @@ const RELEASE_MS = 300;
 const RETURN_GUARD = 3000;
 const STALL_MS = 250;
 const FAR_PALM = 0.045;
+const UPRIGHT_COS = Math.cos((65 * Math.PI) / 180);
 /** The camera is requested at 1280×720; frames that report their size override this. */
 export const DEFAULT_ASPECT = 16 / 9;
 
@@ -61,6 +62,10 @@ type Hand = Sample & {
   points: Point[];
   scale: number;
   open: boolean;
+  /** Fingers roughly up (within 65°), the pose of a hand shown to the camera. */
+  upright: boolean;
+  /** Open and upright: only this hand can start a swipe or a hold. */
+  ready: boolean;
   fingers: number;
 };
 type Swipe = {
@@ -84,17 +89,21 @@ function measure(points: Point[], aspect: number, t: number): Hand {
   const span = (a: Point, b: Point) =>
     Math.hypot((a.x - b.x) * aspect, a.y - b.y);
   const fingers = extendedFingers(points);
+  // Talking hands mostly face up or sideways; a command is shown fingers-up.
+  // A hand pointing at the camera is too foreshortened to tell, so it waits.
+  const length = span(points[0], points[9]);
+  const upright =
+    length >= span(points[5], points[17]) * 0.5 &&
+    points[0].y - points[9].y >= length * UPRIGHT_COS;
   return {
     t,
     x: x * aspect,
     y,
     points,
-    scale: Math.max(
-      span(points[0], points[9]),
-      span(points[5], points[17]),
-      0.04,
-    ),
+    scale: Math.max(length, span(points[5], points[17]), 0.04),
     open: fingers >= 3,
+    upright,
+    ready: fingers >= 3 && upright,
     fingers,
   };
 }
@@ -147,6 +156,8 @@ export class GestureEngine {
   private hintSince = 0;
   private wasLocked: boolean | null = null;
   private quietUntil = 0;
+  /** Last time the speaker's own, near-enough hand was presented. */
+  private presenterSeenAt = -Infinity;
   private last: Feedback | null = null;
   /** Latest frame metrics for the diagnostics panel. */
   debug = {
@@ -174,6 +185,7 @@ export class GestureEngine {
     this.wasLocked = null;
     this.last = null;
     this.quietUntil = 0;
+    this.presenterSeenAt = -Infinity;
   }
   setSensitivity(value: number) {
     this.sensitivity = value;
@@ -223,8 +235,9 @@ export class GestureEngine {
     }
 
     const track = this.tracked!;
-    if (hand.open) track.openAt = time;
-    const open = hand.open || time - track.openAt <= OPEN_GRACE;
+    if (hand.ready) track.openAt = time;
+    if (hand.ready && track.scale >= FAR_PALM) this.presenterSeenAt = time;
+    const open = hand.ready || time - track.openAt <= OPEN_GRACE;
     const threshold = Math.max(
       0.1,
       Math.min(0.45, (track.scale * 1.8 * this.sensitivity) / 0.85),
@@ -249,13 +262,20 @@ export class GestureEngine {
       this.attempt = null;
       this.stroke = null;
       if (locked) return this.remember(idle);
+      if (hand.open)
+        return this.remember({
+          kind: "idle",
+          message: "Поверни ладонь пальцами вверх",
+        });
       return this.closedSwipe(hand, threshold, time) ?? this.remember(idle);
     }
     this.closedPath = [];
     if (track.scale < FAR_PALM) {
       this.samples = [];
       this.hold = null;
-      if (locked) return this.remember(idle);
+      // A small hand right after the speaker's own is someone at the back.
+      if (locked || time - this.presenterSeenAt < 10000)
+        return this.remember(idle);
       return this.hint(
         "far",
         "Ладонь слишком далеко — подойди ближе к камере",
@@ -411,11 +431,29 @@ export class GestureEngine {
           ? Math.max(0.4, track.scale * 6)
           : Math.max(0.2, track.scale * 4);
       if (match && best <= reach) {
-        track.x = match.x;
-        track.y = match.y;
-        track.seen = time;
-        track.scale += (match.scale - track.scale) * 0.3;
-        return { hand: match, lostMidSwipe };
+        // A resting hand must not hide the one being shown to the camera, and
+        // a small hand at the back of the room gives way to a much closer one.
+        const settled = match.ready || time - track.openAt <= OPEN_GRACE;
+        const rival = visible
+          .filter(
+            (hand) => hand !== match && hand.ready && hand.scale >= FAR_PALM,
+          )
+          .sort((a, b) => b.scale - a.scale)[0];
+        if (
+          !rival ||
+          !(
+            (!settled && rival.scale >= match.scale * 0.6) ||
+            rival.scale >= match.scale * 1.6
+          )
+        ) {
+          track.x = match.x;
+          track.y = match.y;
+          track.seen = time;
+          track.scale += (match.scale - track.scale) * 0.3;
+          return { hand: match, lostMidSwipe };
+        }
+        this.release("lowered");
+        return { hand: this.start(rival, time), lostMidSwipe };
       }
       if (time - track.seen <= TRACK_GAP) return { hand: null, lostMidSwipe };
       lostMidSwipe = (this.attempt?.progress ?? 0) >= 0.45;
@@ -425,19 +463,34 @@ export class GestureEngine {
       this.clearMotion();
       this.guard = guard;
     }
+    // Presented hands first, then the speaker's (closest, largest) hand,
+    // then the raised one of two similar hands.
     const pick = [...visible].sort(
-      (a, b) => Number(b.open) - Number(a.open) || a.y - b.y,
+      (a, b) =>
+        Number(b.ready) - Number(a.ready) ||
+        Number(b.scale >= FAR_PALM) - Number(a.scale >= FAR_PALM) ||
+        (Math.max(a.scale, b.scale) > Math.min(a.scale, b.scale) * 1.25
+          ? b.scale - a.scale
+          : a.y - b.y),
     )[0];
     if (!pick) return { hand: null, lostMidSwipe };
+    return { hand: this.start(pick, time), lostMidSwipe };
+  }
+
+  /** Starts following a hand; the swipe that just happened stays guarded. */
+  private start(hand: Hand, time: number) {
+    const guard = this.guard;
+    this.clearMotion();
+    this.guard = guard;
     this.tracked = {
-      x: pick.x,
-      y: pick.y,
-      scale: pick.scale,
+      x: hand.x,
+      y: hand.y,
+      scale: hand.scale,
       seen: time,
       since: time,
-      openAt: pick.open ? time : -Infinity,
+      openAt: hand.ready ? time : -Infinity,
     };
-    return { hand: pick, lostMidSwipe };
+    return hand;
   }
 
   /** Records the open-palm path and re-arms a direction once its swipe stops. */
