@@ -1,12 +1,7 @@
 import { macSystem } from "./osascript.ts";
 import type { AppRef, FrontApp, MacSystem } from "./osascript.ts";
 import { TargetError } from "./target.ts";
-import type {
-  ConnectOptions,
-  SlideState,
-  Target,
-  TargetId,
-} from "./target.ts";
+import type { ConnectOptions, SlideState, Target, TargetId } from "./target.ts";
 
 /** Never type arrows into the console, a shell, Finder or the notch window. */
 const protectedBundles = new Set([
@@ -16,7 +11,8 @@ const protectedBundles = new Set([
   "com.apple.finder",
   "com.github.Electron",
 ]);
-const protectedNames = /^(terminal|iterm2?|warp|finder|electron|pitchflow|axiompitch)$/i;
+const protectedNames =
+  /^(terminal|iterm2?|warp|finder|electron|pitchflow|axiompitch)$/i;
 /** The speaker console is a browser tab titled AxiomPitch or PitchFlow. */
 const consoleTitle = /pitchflow|axiompitch/i;
 
@@ -84,8 +80,7 @@ export class FrontmostTarget implements Target {
     if (!wanted)
       throw new TargetError("Выбери приложение, в которое отправлять стрелки.");
     const app = (await this.system.apps()).find(
-      (candidate) =>
-        candidate.bundleId === wanted || candidate.name === wanted,
+      (candidate) => candidate.bundleId === wanted || candidate.name === wanted,
     );
     if (!app) throw new TargetError(`${wanted} не запущено.`);
     if (isProtected(app))
