@@ -3,6 +3,18 @@ import type { VisionFrame, VisionMessage } from "../lib/types";
 
 export type CameraStatus = "off" | "loading" | "ready" | "error";
 
+/**
+ * Chrome and Edge hand out camera frames straight from the track. Unlike
+ * requestAnimationFrame this keeps running while the tab is hidden behind a
+ * full-screen Keynote or Google Slides, so gestures keep working there.
+ */
+type TrackProcessor = new (init: { track: MediaStreamTrack }) => {
+  readable: ReadableStream<VideoFrame>;
+};
+const TrackProcessor = (
+  globalThis as { MediaStreamTrackProcessor?: TrackProcessor }
+).MediaStreamTrackProcessor;
+
 export function useCamera(onFrame: (frame: VisionFrame) => void) {
   const [status, setStatus] = useState<CameraStatus>("off");
   const [error, setError] = useState("");
@@ -11,6 +23,9 @@ export function useCamera(onFrame: (frame: VisionFrame) => void) {
   const workerRef = useRef<Worker | null>(null);
   const streamRef = useRef<MediaStream | null>(null);
   const frameId = useRef(0);
+  const readerRef = useRef<ReadableStreamDefaultReader<VideoFrame> | null>(
+    null,
+  );
   const generation = useRef(0);
   const timeoutRef = useRef<ReturnType<typeof setTimeout> | undefined>(
     undefined,
@@ -24,6 +39,8 @@ export function useCamera(onFrame: (frame: VisionFrame) => void) {
     generation.current++;
     clearTimeout(timeoutRef.current);
     cancelAnimationFrame(frameId.current);
+    readerRef.current?.cancel().catch(() => undefined);
+    readerRef.current = null;
     workerRef.current?.terminate();
     workerRef.current = null;
     streamRef.current?.getTracks().forEach((track) => track.stop());
@@ -115,12 +132,47 @@ export function useCamera(onFrame: (frame: VisionFrame) => void) {
           fail("Не удалось получить кадр. Выключи и снова включи камеру.");
         }
       };
+      const pump = async (reader: ReadableStreamDefaultReader<VideoFrame>) => {
+        while (generation.current === run) {
+          let next: ReadableStreamReadResult<VideoFrame>;
+          try {
+            next = await reader.read();
+          } catch {
+            return;
+          }
+          if (next.done) return;
+          const frame = next.value;
+          const time = performance.now();
+          // Unused frames must be closed at once, or the camera stalls.
+          if (busy || time - lastSent < 33 || generation.current !== run) {
+            frame.close();
+            continue;
+          }
+          busy = true;
+          lastSent = time;
+          worker.postMessage({ type: "frame", bitmap: frame, time }, [frame]);
+        }
+      };
+      const capture = () => {
+        if (TrackProcessor)
+          try {
+            const reader = new TrackProcessor({
+              track: stream.getVideoTracks()[0],
+            }).readable.getReader();
+            readerRef.current = reader;
+            void pump(reader);
+            return;
+          } catch {
+            // Fall back to painting frames while the tab is visible.
+          }
+        frameId.current = requestAnimationFrame(tick);
+      };
       worker.onmessage = (event: MessageEvent<VisionMessage>) => {
         if (generation.current !== run) return;
         if (event.data.type === "ready") {
           clearTimeout(timeoutRef.current);
           setStatus("ready");
-          frameId.current = requestAnimationFrame(tick);
+          capture();
         } else if (event.data.type === "error") {
           console.error("Vision:", event.data.message);
           fail(
