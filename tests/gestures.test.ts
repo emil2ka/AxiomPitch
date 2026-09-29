@@ -92,22 +92,32 @@ test("relaxing fingers re-arms hold without showing shoulders", () => {
   engine.update([], [palm()], 2800, true);
   assert.equal(engine.update([], [palm()], 4300, true).gesture, "toggle");
 });
+test("sensitivity widens or shortens the required swipe", () => {
+  const easy = new GestureEngine();
+  easy.setSensitivity(0.55);
+  easy.update(pose, [palm()], 0, false);
+  assert.equal(easy.update(pose, [palm(0.5)], 500, false).gesture, "next");
+  const hard = new GestureEngine();
+  hard.setSensitivity(1.15);
+  hard.update(pose, [palm()], 0, false);
+  assert.equal(hard.update(pose, [palm(0.5)], 500, false).gesture, undefined);
+});
 test("small hands use their own scale rather than shoulder width", () => {
   const small = (x: number) => palm().map(p => ({x: x + (p.x - .4) * .5, y: .4 + (p.y - .4) * .5}));
   const engine = new GestureEngine();
   engine.update([], [small(.4)], 0, false);
   assert.equal(engine.update([], [small(.5)], 500, false).gesture, "next");
 });
-test("incomplete and diagonal attempts produce specific correction feedback", () => {
+test("incomplete attempts and truly vertical moves get correction feedback", () => {
   const engine = new GestureEngine();
   engine.update(pose, [palm()], 0, false);
-  const short = engine.update(pose, [palm(0.5)], 1150, false);
+  const short = engine.update(pose, [palm(0.5)], 1600, false);
   assert.equal(short.code, "wider");
   assert.match(short.message, /вправо/);
   engine.reset();
   engine.update(pose, [palm()], 0, false);
   assert.equal(
-    engine.update(pose, [palm(0.5, 0.2)], 500, false).code,
+    engine.update(pose, [palm(0.41, 0.2)], 700, false).code,
     "horizontal",
   );
   engine.reset();
@@ -116,6 +126,40 @@ test("incomplete and diagonal attempts produce specific correction feedback", ()
     engine.update(pose, [palm(0.4, 0.4, false)], 700, false).code,
     "palm",
   );
+});
+test("a natural arc keeps counting as a swipe instead of a diagonal error", () => {
+  const engine = new GestureEngine();
+  engine.update(pose, [palm()], 0, false);
+  const arc = engine.update(pose, [palm(0.5, 0.28)], 400, false);
+  assert.equal(arc.kind, "progress");
+  assert.equal(arc.code, undefined);
+  assert.equal(engine.update(pose, [palm(0.66, 0.22)], 700, false).gesture, "next");
+});
+test("locked gestures ignore free hand movement instead of flashing errors", () => {
+  const engine = new GestureEngine();
+  engine.update(pose, [palm()], 0, true);
+  const diagonal = engine.update(pose, [palm(0.6, 0.2)], 400, true);
+  assert.equal(diagonal.kind, "idle");
+  assert.equal(diagonal.code, undefined);
+  engine.update(pose, [palm(0.7, 0.4)], 700, true);
+  const sweep = engine.update(pose, [palm(0.45, 0.42)], 1300, true);
+  assert.equal(sweep.kind, "idle");
+  assert.equal(sweep.gesture, undefined);
+  assert.equal(sweep.code, undefined);
+  const closed = engine.update(pose, [palm(0.4, 0.4, false)], 2300, true);
+  assert.equal(closed.kind, "idle");
+  assert.equal(closed.code, undefined);
+});
+test("after unlocking, a still palm cannot lock the gestures again at once", () => {
+  const engine = new GestureEngine();
+  engine.update(pose, [palm()], 0, true);
+  assert.equal(engine.update(pose, [palm()], 1500, true).gesture, "toggle");
+  engine.update(pose, [], 2300, false);
+  engine.update(pose, [], 2700, false);
+  engine.update(pose, [palm()], 2800, false);
+  assert.equal(engine.update(pose, [palm()], 4300, false).gesture, undefined);
+  assert.equal(engine.update(pose, [palm()], 5700, false).gesture, undefined);
+  assert.equal(engine.update(pose, [palm()], 5900, false).gesture, "toggle");
 });
 test("tracking loss clears the gesture and reports framing correction", () => {
   const engine = new GestureEngine();

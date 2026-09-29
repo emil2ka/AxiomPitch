@@ -31,6 +31,18 @@ export class GestureEngine {
   private hintSince = 0;
   private sensitivity = 0.85;
   private releaseY: number | undefined;
+  private unlockGraceUntil = 0;
+  /** Latest frame metrics for the diagnostics panel. */
+  debug = {
+    hands: 0,
+    open: 0,
+    scale: 0,
+    dx: 0,
+    dy: 0,
+    elapsed: 0,
+    threshold: 0,
+    locked: false,
+  };
 
   reset() {
     this.anchor = null;
@@ -42,6 +54,7 @@ export class GestureEngine {
     this.currentHint = "";
     this.hintSince = 0;
     this.releaseY = undefined;
+    this.unlockGraceUntil = 0;
   }
   setSensitivity(value: number) {
     this.sensitivity = value;
@@ -59,10 +72,17 @@ export class GestureEngine {
     } as Feedback;
     const visible = hands.filter(isVisibleHand);
     const open = visible.filter(isOpenPalm);
+    this.debug.hands = visible.length;
+    this.debug.open = open.length;
+    this.debug.locked = locked;
+    // While a gesture is in progress the same hand keeps the anchor: a second
+    // hand moving nearby must not steal it and smear the measurement.
     const candidate = open.sort((a, b) =>
-      this.lastHand
-        ? distance(a[9], this.lastHand) - distance(b[9], this.lastHand)
-        : a[9].y - b[9].y,
+      this.anchor
+        ? distance(a[9], this.anchor) - distance(b[9], this.anchor)
+        : this.lastHand
+          ? distance(a[9], this.lastHand) - distance(b[9], this.lastHand)
+          : a[9].y - b[9].y,
     )[0];
 
     if (time < this.cooldownUntil)
@@ -83,6 +103,8 @@ export class GestureEngine {
       const attempted = this.anchor;
       this.anchor = null;
       this.lastHand = null;
+      // While locked, mistakes and hints are noise: the speaker is just talking.
+      if (locked) return idle;
       if (
         attempted &&
         time - attempted.time > 200 &&
@@ -103,16 +125,26 @@ export class GestureEngine {
     const scale = palmSize(candidate);
     const span = Math.max(.13, scale * 2);
     const wrist = candidate[9];
+    if (scale <= .045) {
+      this.anchor = null;
+      if (locked) return idle;
+      return this.hint(
+        "far",
+        "Ладонь слишком далеко — подойди ближе к камере",
+        time,
+      );
+    }
     if (
       [candidate[0], candidate[9]].some(
         (point) =>
-          point.x < 0.01 ||
-          point.x > 0.99 ||
-          point.y < 0.01 ||
-          point.y > 0.99,
+          point.x < 0.05 ||
+          point.x > 0.95 ||
+          point.y < 0.015 ||
+          point.y > 0.985,
       )
     ) {
       this.anchor = null;
+      if (locked) return idle;
       return this.hint(
         "edge",
         "Отведи руку от края кадра, чтобы вся ладонь была видна",
@@ -124,22 +156,61 @@ export class GestureEngine {
       this.anchor = null;
     this.lastHand = { ...wrist };
     this.anchor ??= { x: wrist.x, y: wrist.y, time };
-    const dx = wrist.x - this.anchor.x;
-    const dy = wrist.y - this.anchor.y;
-    const elapsed = time - this.anchor.time;
-    const threshold = Math.max(.08, Math.min(.22, scale * 1.1 * this.sensitivity / .85));
+    let dx = wrist.x - this.anchor.x;
+    let dy = wrist.y - this.anchor.y;
+    let elapsed = time - this.anchor.time;
+    const threshold = Math.max(.06, Math.min(.26, scale * 1.1 * this.sensitivity / .85));
     const verticalTolerance = Math.max(.045, threshold * .7);
-    const movement = Math.hypot(dx, dy);
-    if (
-      !locked &&
-      Math.abs(dx) >= threshold &&
-      Math.abs(dy) < verticalTolerance &&
-      elapsed >= 100 &&
-      elapsed <= 1800
-    ) {
-      return this.command(dx > 0 ? "next" : "previous", time);
+    const holdLimit = Math.max(.035, scale * .55);
+    this.debug = {
+      hands: visible.length,
+      open: open.length,
+      scale,
+      dx,
+      dy,
+      elapsed,
+      threshold,
+      locked,
+    };
+    if (locked) {
+      // While gestures are locked only one thing matters: a deliberate still hold.
+      // Free gesturing must stay silent instead of flashing hints and errors.
+      if (Math.hypot(dx, dy) > holdLimit) {
+        this.anchor = { x: wrist.x, y: wrist.y, time };
+        return idle;
+      }
+      if (elapsed >= 1500) {
+        const feedback = this.command("toggle", time);
+        this.unlockGraceUntil = time + 1600;
+        return feedback;
+      }
+      return {
+        kind: "progress",
+        message: "Удерживай ладонь · включение жестов",
+        progress: Math.min(1, elapsed / 1500),
+      };
     }
-    if (Math.abs(dy) > verticalTolerance) {
+    // Right after unlocking, do not let the same pose flip the lock back.
+    if (time < this.unlockGraceUntil) {
+      this.anchor = { x: wrist.x, y: wrist.y, time };
+      return { kind: "idle", message: "Жесты включены" };
+    }
+    if (this.anchor.time < this.unlockGraceUntil) {
+      this.anchor = { x: wrist.x, y: wrist.y, time };
+      dx = 0;
+      dy = 0;
+      elapsed = 0;
+    }
+    this.debug.dx = dx;
+    this.debug.dy = dy;
+    this.debug.elapsed = elapsed;
+    // Swipes follow the horizontal projection: a natural arc must not cancel them.
+    const horizontal = Math.abs(dx);
+    const vertical = Math.abs(dy);
+    const movement = Math.hypot(dx, dy);
+    if (horizontal >= threshold && elapsed >= 80 && elapsed <= 2500)
+      return this.command(dx > 0 ? "next" : "previous", time);
+    if (vertical > verticalTolerance && horizontal < threshold * .35 && elapsed > 550) {
       this.anchor = { x: wrist.x, y: wrist.y, time };
       return {
         kind: "error",
@@ -147,31 +218,25 @@ export class GestureEngine {
         message: "Веди руку горизонтально, на одной высоте",
       };
     }
-    if (movement > Math.max(.018, scale * .25)) {
-      if (elapsed > 1100) {
+    if (movement > holdLimit) {
+      if (elapsed > 1400) {
         this.anchor = { x: wrist.x, y: wrist.y, time };
         return {
           kind: "error",
-          code: locked ? "steady" : "wider",
-          message: locked
-            ? "Останови ладонь и держи её неподвижно"
-            : `Проведи рукой дальше ${dx >= 0 ? "вправо" : "влево"} за одно движение`,
+          code: "wider",
+          message: `Проведи рукой дальше ${dx >= 0 ? "вправо" : "влево"} за одно движение`,
         };
       }
       return {
         kind: "progress",
-        message: locked
-          ? "Останови ладонь, чтобы включить жесты"
-          : `Продолжай движение ${dx >= 0 ? "вправо" : "влево"}`,
-        progress: Math.min(1, Math.abs(dx) / threshold),
+        message: `Продолжай движение ${dx >= 0 ? "вправо" : "влево"}`,
+        progress: Math.min(1, horizontal / threshold),
       };
     }
     if (elapsed >= 1500) return this.command("toggle", time);
     return {
       kind: "progress",
-      message: locked
-        ? "Удерживай ладонь · включение жестов"
-        : "Удерживай ладонь · блокировка жестов",
+      message: "Удерживай ладонь · блокировка жестов",
       progress: Math.min(1, elapsed / 1500),
     };
   }

@@ -21,23 +21,58 @@ let pose: PoseLandmarker | undefined;
 let hand: HandLandmarker | undefined;
 let bodyPoints: Point[] = [], bodyWorld: Point[] = [];
 let frameCount = 0;
+let visionFiles:
+  | Awaited<ReturnType<typeof FilesetResolver.forVisionTasks>>
+  | undefined;
+let modelBase = "";
+let handCosts: number[] = [];
+let handSettled = false;
 const mirrorWorld = (points: Point[]) => points.map((p) => ({ ...p, x: -p.x }));
 const mirror = (points: Point[]) => points.map((p) => ({ ...p, x: 1 - p.x }));
+
+const handOptions = (delegate: "GPU" | "CPU") => ({
+  baseOptions: { modelAssetPath: `${modelBase}/hand_landmarker.task`, delegate },
+  canvas: new OffscreenCanvas(640, 480),
+  runningMode: "VIDEO" as const,
+  numHands: 2,
+  minHandDetectionConfidence: 0.5,
+  minHandPresenceConfidence: 0.5,
+  minTrackingConfidence: 0.5,
+});
+
+/** A software WebGL rasterizer (SwiftShader, llvmpipe) is slower than plain CPU. */
+const hasHardwareWebgl = () => {
+  try {
+    const gl = new OffscreenCanvas(1, 1).getContext("webgl2");
+    if (!gl) return false;
+    const info = gl.getExtension("WEBGL_debug_renderer_info");
+    const renderer = info
+      ? String(gl.getParameter(info.UNMASKED_RENDERER_WEBGL))
+      : "";
+    return !/swiftshader|software|llvmpipe|mesa/i.test(renderer);
+  } catch {
+    return false;
+  }
+};
 
 self.onmessage = async (event: MessageEvent) => {
   if (event.data.type === "init") {
     try {
       const base = event.data.base as string;
+      modelBase = base;
       const files = await FilesetResolver.forVisionTasks(`${base}/wasm`, true);
-      hand = await HandLandmarker.createFromOptions(files, {
-        baseOptions: { modelAssetPath: `${base}/hand_landmarker.task`, delegate: "CPU" },
-        canvas: new OffscreenCanvas(640, 480),
-        runningMode: "VIDEO",
-        numHands: 2,
-        minHandDetectionConfidence: 0.45,
-        minHandPresenceConfidence: 0.45,
-        minTrackingConfidence: 0.45,
-      });
+      visionFiles = files;
+      // The GPU delegate keeps more frames per second on real hardware; a
+      // software rasterizer or a failed context falls back to plain CPU.
+      if (hasHardwareWebgl()) {
+        try {
+          hand = await HandLandmarker.createFromOptions(files, handOptions("GPU"));
+        } catch {
+          hand = await HandLandmarker.createFromOptions(files, handOptions("CPU"));
+        }
+      } else {
+        hand = await HandLandmarker.createFromOptions(files, handOptions("CPU"));
+      }
       // Body tracking decorates the mirror but must never disable hand commands.
       try {
         pose = await PoseLandmarker.createFromOptions(files, {
@@ -46,8 +81,8 @@ self.onmessage = async (event: MessageEvent) => {
           runningMode: "VIDEO",
           numPoses: 1,
           outputSegmentationMasks: false,
-          minPoseDetectionConfidence: 0.45,
-          minPosePresenceConfidence: 0.45,
+          minPoseDetectionConfidence: 0.5,
+          minPosePresenceConfidence: 0.5,
         });
       } catch { pose = undefined; }
       self.postMessage({ type: "ready" });
@@ -69,9 +104,26 @@ self.onmessage = async (event: MessageEvent) => {
     return;
   }
   const started = performance.now();
+  frameCount++;
   try {
     const hands = hand.detectForVideo(bitmap, event.data.time);
-    if (pose && frameCount++ % 3 === 0) {
+    if (!handSettled) {
+      // Skip the warm-up frames, then judge the delegate by the median cost:
+      // a couple of shader-compile spikes must not force a false fallback.
+      if (frameCount > 3) handCosts.push(performance.now() - started);
+      if (handCosts.length >= 9 && visionFiles) {
+        handSettled = true;
+        const sorted = [...handCosts].sort((a, b) => a - b);
+        if (sorted[Math.floor(sorted.length / 2)] > 55) {
+          hand.close();
+          hand = await HandLandmarker.createFromOptions(
+            visionFiles,
+            handOptions("CPU"),
+          );
+        }
+      }
+    }
+    if (pose && frameCount % 3 === 0) {
       try {
         pose.detectForVideo(bitmap, event.data.time, result => {
           bodyPoints = mirror(result.landmarks[0] ?? []);

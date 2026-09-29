@@ -64,10 +64,10 @@ export function useCamera(onFrame: (frame: VisionFrame) => void) {
         );
       const stream = await navigator.mediaDevices.getUserMedia({
         video: {
-          width: { ideal: 640 },
-          height: { ideal: 480 },
+          width: { ideal: 1280 },
+          height: { ideal: 720 },
           facingMode: "user",
-          frameRate: { ideal: 24, max: 30 },
+          frameRate: { ideal: 30, max: 60 },
         },
         audio: false,
       });
@@ -98,7 +98,7 @@ export function useCamera(onFrame: (frame: VisionFrame) => void) {
           busy ||
           video.readyState < 2 ||
           video.currentTime === lastTime ||
-          time - lastSent < 50
+          time - lastSent < 33
         )
           return;
         busy = true;
