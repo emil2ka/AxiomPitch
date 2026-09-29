@@ -154,9 +154,12 @@ function CoachingScene({ active, reduced, onAction }: { active: boolean; reduced
     <div className="story-coach-stage">
       <div className="story-coach-preview"><StoryDeck index={fixed ? 3 : 2} reduced={reduced} /></div>
       <div className="story-coach-space" aria-label="Демонстрация подсказки для движения руки">
-        <ArrowRight className="story-coach-target" size={18} aria-hidden="true" />
-        <svg className="story-coach-route" viewBox="0 0 500 160" aria-hidden="true"><motion.path key={`route-${cycle}-${shown}`} d="M70 110 C180 110 240 45 425 45" initial={{ pathLength: reduced ? 1 : 0 }} animate={{ pathLength: fixed || shown === 2 ? 1 : .23 }} transition={{ duration: reduced ? 0 : 1.25, ease: "easeInOut" }} /></svg>
-        <motion.div key={`palm-${cycle}-${shown}`} className={`story-coach-palm ${fixed ? "accepted" : ""}`} initial={reduced ? false : { x: 0, y: 0 }} animate={{ x: fixed || shown === 2 ? 230 : shown === 0 ? 35 : 0, y: fixed || shown === 2 ? -48 : 0 }} transition={{ duration: reduced ? 0 : 1.25, ease: [.4, 0, .2, 1] }}><Hand strokeWidth={1.1} /></motion.div>
+        <ArrowRight className="story-coach-target" size={20} aria-hidden="true" />
+        <svg className="story-coach-route" viewBox="0 0 500 160" preserveAspectRatio="none" aria-hidden="true">
+          <path className="route-base" d="M40 118 C170 118 250 45 460 45" />
+          <motion.path key={`route-${cycle}-${shown}`} d="M40 118 C170 118 250 45 460 45" initial={{ pathLength: reduced ? 1 : 0 }} animate={{ pathLength: fixed || shown === 2 ? 1 : .3 }} transition={{ duration: reduced ? 0 : 1.25, ease: "easeInOut" }} />
+        </svg>
+        <motion.div key={`palm-${cycle}-${shown}`} className={`story-coach-palm ${fixed ? "accepted" : ""}`} initial={reduced ? false : { x: 0, y: 0 }} animate={{ x: fixed || shown === 2 ? 264 : shown === 0 ? 44 : 0, y: fixed || shown === 2 ? -52 : 0 }} transition={{ duration: reduced ? 0 : 1.25, ease: [.4, 0, .2, 1] }}><Hand strokeWidth={1.1} /></motion.div>
         <AnimatePresence mode="wait"><motion.div key={fixed ? "accepted" : "hint"} className={`story-hint ${fixed ? "accepted" : ""}`} initial={reduced ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: .3 }} aria-live="polite"><small>{fixed ? "ПОЛУЧИЛОСЬ" : "ПОДСКАЗКА"}</small><p>{caption}</p></motion.div></AnimatePresence>
       </div>
     </div>
