@@ -13,7 +13,6 @@ import {
   ArrowRight,
   Camera,
   CameraOff,
-  Check,
   ChevronRight,
   Clock3,
   FileUp,
@@ -950,19 +949,6 @@ function Presenter() {
         onHistory={() => setHistoryOpen(true)}
       />
       <div className="studio-main">
-        <header className="app-header">
-          <div className={`studio-status ${stage}`}>{stage === "running" ? "Ты в эфире" : stage === "paused" ? "На паузе" : "Твоё пространство"}</div>
-          <div className="header-actions">
-            <button
-              className={`button secondary ${audienceOpen || overlayVisible ? "selected" : ""}`}
-              onClick={openAudience}
-              aria-label={external ? overlayVisible ? "Скрыть чёлку" : "Показать чёлку" : audienceOpen ? "Экран открыт" : "Экран аудитории"}
-            >
-              <Monitor size={17} />
-              <span>{external ? overlayVisible ? "Скрыть чёлку" : "Показать чёлку" : audienceOpen ? "Экран открыт" : "Экран аудитории"}</span>
-            </button>
-          </div>
-        </header>
         <div className="studio-deck" hidden={view !== "deck"}>
       <div className="workspace-heading">
         <div className="studio-title">
@@ -970,6 +956,14 @@ function Presenter() {
           <p>{external ? `${shownCount ?? "?"} ${slidesWord(shownCount)} · Внешнее приложение` : `${slides.length} ${slidesWord(slides.length)} · ${slides[0]?.image ? "Твой PDF" : "Демо-презентация"}`}</p>
         </div>
         <div className="deck-actions">
+          <button
+            className={`button secondary ${audienceOpen || overlayVisible ? "selected" : ""}`}
+            onClick={openAudience}
+            aria-label={external ? overlayVisible ? "Скрыть чёлку" : "Показать чёлку" : audienceOpen ? "Экран открыт" : "Экран аудитории"}
+          >
+            <Monitor size={16} />
+            <span>{external ? overlayVisible ? "Скрыть чёлку" : "Показать чёлку" : audienceOpen ? "Экран открыт" : "Экран аудитории"}</span>
+          </button>
           <input
             type="file"
             accept="application/pdf,.pdf"
@@ -1099,21 +1093,15 @@ function Presenter() {
         </div>
         <div className="stage-column">
         <section className="stage-panel" aria-label="Презентация">
-          <div className="stage-label">
-            <span className="slide-counter" title={external && estimated ? "Оценочный номер: приложение не сообщает позицию" : undefined}>
-              {external && estimated ? "≈ " : ""}
-              {String(shownIndex + 1).padStart(2, "0")}{" "}
-              <span>/ {shownCount === null || shownCount === undefined ? "?" : String(shownCount).padStart(2, "0")}</span>
-            </span>
-          </div>
           {previewAvailable ? <motion.div
+            className="slide-frame"
             key={slides[index].id}
             initial={reducedMotion ? false : { opacity: 0.5, y: 5 }}
             animate={{ opacity: 1, y: 0 }}
             transition={{ duration: 0.2 }}
           >
             <SlideView slide={slides[index]} />
-          </motion.div> : <div className="external-show-placeholder">
+          </motion.div> : <div className="external-show-placeholder slide-frame">
             <Presentation size={32} />
             <strong>{slideTarget?.label || "Внешний показ"} · {estimated ? "≈ " : ""}слайд {externalIndex + 1}</strong>
             <p>{pdfMatches ? "Для этого слайда нет страницы в загруженном PDF." : "Презентация открыта во внешнем приложении. Загрузи соответствующий PDF, если нужны превью и заметки."}</p>
@@ -1122,33 +1110,16 @@ function Presenter() {
             <div className="transport-buttons">
               <button
                 className="icon-button"
+                title="Предыдущий слайд (←)"
                 aria-label="Предыдущий слайд"
                 disabled={!external && index === 0}
                 onClick={() => step("previous")}
               >
                 <ArrowLeft size={20} />
               </button>
-              <div className="slide-dots" aria-label="Слайды" hidden={!previewAvailable}>
-                {slides
-                  .slice(
-                    Math.max(0, index - 3),
-                    Math.min(slides.length, index + 4),
-                  )
-                  .map((slide, local) => {
-                    const i = Math.max(0, index - 3) + local;
-                    return (
-                      <button
-                        key={slide.id}
-                        className={`slide-dot ${i === index ? "active" : ""}`}
-                        aria-label={`Слайд ${i + 1}`}
-                        aria-current={i === index ? "step" : undefined}
-                        disabled={external} onClick={() => goTo(i)}
-                      />
-                    );
-                  })}
-              </div>
               <button
                 className="icon-button"
+                title="Следующий слайд (→)"
                 aria-label="Следующий слайд"
                 disabled={!external && index === slides.length - 1}
                 onClick={() => step("next")}
@@ -1156,7 +1127,11 @@ function Presenter() {
                 <ArrowRight size={20} />
               </button>
             </div>
-            <span className="keyboard-tip">← → на клавиатуре</span>
+            <span className="slide-counter" title={external && estimated ? "Оценочный номер: приложение не сообщает позицию" : undefined}>
+              {external && estimated ? "≈ " : ""}
+              {String(shownIndex + 1).padStart(2, "0")}{" "}
+              <span>/ {shownCount === null || shownCount === undefined ? "?" : String(shownCount).padStart(2, "0")}</span>
+            </span>
           </div>
           {previewAvailable && <div className="below-slide">
             <div className="notes-panel">
@@ -1171,26 +1146,6 @@ function Presenter() {
                 placeholder="Твоя главная мысль на этом слайде…"
                 rows={3}
               />
-            </div>
-            <div className="next-slide-panel">
-              <span className="panel-caption">Далее</span>
-              {slides[index + 1] ? (
-                <button
-                  className="next-preview"
-                  onClick={() => step("next")}
-                >
-                  <SlideView slide={slides[index + 1]} small />
-                  <span>
-                    {slides[index + 1].title.replace(/\n/g, " ")}
-                    <ChevronRight size={15} />
-                  </span>
-                </button>
-              ) : (
-                <div className="last-slide">
-                  <Check size={22} />
-                  <span>Финальный слайд</span>
-                </div>
-              )}
             </div>
           </div>}
         </section>
@@ -1207,109 +1162,27 @@ function Presenter() {
             </div>
           </div>
           {apiEnabled && (
-            <section className="target-panel bridge-integration">
-              <div className="panel-heading">
-                <Presentation size={17} />
-                <span>Где листать слайды</span>
-              </div>
-              {bridgeOnline ? (
-                <>
-                  <div className="target-row">
-                    <select
-                      aria-label="Приложение со слайдами"
-                      value={chosenTarget}
-                      disabled={isSession}
-                      onFocus={refreshTargets}
-                      onChange={(event) =>
-                        setChosenTarget(event.target.value as TargetId)
-                      }
-                    >
-                      {(targetList.length
-                        ? targetList
-                        : [{ id: "pitchflow" as const, available: true }]
-                      ).map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {targetNames[item.id]}
-                          {item.available ? "" : " · не запущено"}
-                        </option>
-                      ))}
-                    </select>
-                    {chosenTarget === "frontmost" && (
-                      <label className="target-app">
-                        <span>ПРИЛОЖЕНИЕ</span>
-                        <select
-                          aria-label="Приложение для стрелок"
-                          value={chosenApp}
-                          disabled={isSession}
-                          onFocus={refreshTargets}
-                          onChange={(event) => setChosenApp(event.target.value)}
-                        >
-                          <option value="">Выбери приложение</option>
-                          {runningApps.map((app) => (
-                            <option key={app.bundleId} value={app.bundleId}>
-                              {app.name}
-                            </option>
-                          ))}
-                        </select>
-                      </label>
-                    )}
-                    <button
-                      className="button secondary full"
-                      disabled={isSession || (chosenTarget === "frontmost" && !chosenApp)}
-                      onClick={() => {
-                        bridge.current
-                          ?.connectTarget(
-                            chosenTarget,
-                            chosenTarget === "frontmost"
-                              ? chosenApp
-                              : undefined,
-                          )
-                          .then(status => {
-                            externalPosition.current = status.slideIndex ?? 0;
-                            setExternalIndex(externalPosition.current);
-                            setEstimated(status.slideIndex === null);
-                            setPdfMatches(false);
-                            applyTarget(status);
-                            refreshTargets();
-                          })
-                          .catch((error: Error) => setNotice(error.message));
-                      }}
-                    >
-                      <Plug size={16} />
-                      Подключить
-                    </button>
-                  </div>
-                  {(slideTarget?.error || statusText) && (
-                    <p
-                      className={`target-status ${slideTarget?.error ? "error" : ""}`}
-                      title={
-                        external &&
-                        (slideTarget?.app === "chrome" ||
-                          slideTarget?.app === "frontmost")
-                          ? "Окно презентации должно быть впереди, иначе стрелки не уйдут"
-                          : undefined
-                      }
-                    >
-                      {slideTarget?.error ?? statusText}
-                    </p>
-                  )}
-                  {external && <>
-                    <button className="text-button" disabled={isSession} onClick={() => {
-                      bridge.current?.disconnectTarget().then(status => { applyTarget(status); refreshTargets(); }).catch((error: Error) => setNotice(error.message));
-                    }}>Вернуться к колоде PitchFlow</button>
-                    <label className="bridge-setting"><input type="checkbox" checked={pdfMatches} disabled={isSession || !slides[0]?.image} onChange={event => setPdfMatches(event.target.checked)} />PDF соответствует показу</label>
-                    {estimated && <label className="bridge-setting">Начальный номер слайда <input aria-label="Начальный номер внешнего слайда" type="number" min={1} max={2000} disabled={isSession} value={externalIndex + 1} onChange={event => {
-                      const value = Math.max(0, Math.min(1999, Number(event.target.value) - 1));
-                      externalPosition.current = value; setExternalIndex(value);
-                    }} /></label>}
-                    {isSession && <p className="target-status">Для смены приложения сначала заверши выступление.</p>}
-                  </>}
-                </>
-              ) : (
-                <p className="target-status">
-                  Мост не запущен — запусти npm run server
-                </p>
-              )}
+            <section className="show-line">
+              <div className="panel-heading"><Presentation size={15} strokeWidth={1.6} /><span>Показ</span></div>
+              <p
+                className={`show-status ${slideTarget?.error ? "error" : ""}`}
+                title={
+                  external &&
+                  (slideTarget?.app === "chrome" ||
+                    slideTarget?.app === "frontmost")
+                    ? "Окно презентации должно быть впереди, иначе стрелки не уйдут"
+                    : undefined
+                }
+              >
+                {external
+                  ? slideTarget?.error ?? statusText
+                  : bridgeOnline
+                    ? "Слайды листаются в этой вкладке"
+                    : "Мост не запущен"}
+              </p>
+              <button className="text-button" onClick={() => setView("settings")}>
+                {external ? "Настроить внешний показ" : "Подключить внешний показ"} <ChevronRight size={15} />
+              </button>
             </section>
           )}
 
@@ -1355,6 +1228,107 @@ function Presenter() {
           <h1 id="settings-title">Настройки</h1>
           <p className="settings-page-note">Камера, жесты, чёлка и аккаунт. Всё остаётся на этом устройстве.</p>
           <div className="settings-grid">
+            {apiEnabled && (
+              <section className="settings-group settings-panel settings-panel-wide">
+                <span className="settings-label">Внешний показ</span>
+                {bridgeOnline ? (
+                  <>
+                    <div className="target-row">
+                      <select
+                        aria-label="Приложение со слайдами"
+                        value={chosenTarget}
+                        disabled={isSession}
+                        onFocus={refreshTargets}
+                        onChange={(event) =>
+                          setChosenTarget(event.target.value as TargetId)
+                        }
+                      >
+                        {(targetList.length
+                          ? targetList
+                          : [{ id: "pitchflow" as const, available: true }]
+                        ).map((item) => (
+                          <option key={item.id} value={item.id}>
+                            {targetNames[item.id]}
+                            {item.available ? "" : " · не запущено"}
+                          </option>
+                        ))}
+                      </select>
+                      {chosenTarget === "frontmost" && (
+                        <label className="target-app">
+                          <span>ПРИЛОЖЕНИЕ</span>
+                          <select
+                            aria-label="Приложение для стрелок"
+                            value={chosenApp}
+                            disabled={isSession}
+                            onFocus={refreshTargets}
+                            onChange={(event) => setChosenApp(event.target.value)}
+                          >
+                            <option value="">Выбери приложение</option>
+                            {runningApps.map((app) => (
+                              <option key={app.bundleId} value={app.bundleId}>
+                                {app.name}
+                              </option>
+                            ))}
+                          </select>
+                        </label>
+                      )}
+                      <button
+                        className="button secondary full"
+                        disabled={isSession || (chosenTarget === "frontmost" && !chosenApp)}
+                        onClick={() => {
+                          bridge.current
+                            ?.connectTarget(
+                              chosenTarget,
+                              chosenTarget === "frontmost"
+                                ? chosenApp
+                                : undefined,
+                            )
+                            .then(status => {
+                              externalPosition.current = status.slideIndex ?? 0;
+                              setExternalIndex(externalPosition.current);
+                              setEstimated(status.slideIndex === null);
+                              setPdfMatches(false);
+                              applyTarget(status);
+                              refreshTargets();
+                            })
+                            .catch((error: Error) => setNotice(error.message));
+                        }}
+                      >
+                        <Plug size={16} />
+                        Подключить
+                      </button>
+                    </div>
+                    {(slideTarget?.error || statusText) && (
+                      <p
+                        className={`target-status ${slideTarget?.error ? "error" : ""}`}
+                        title={
+                          external &&
+                          (slideTarget?.app === "chrome" ||
+                            slideTarget?.app === "frontmost")
+                            ? "Окно презентации должно быть впереди, иначе стрелки не уйдут"
+                            : undefined
+                        }
+                      >
+                        {slideTarget?.error ?? statusText}
+                      </p>
+                    )}
+                    {external && <>
+                      <button className="text-button" disabled={isSession} onClick={() => {
+                        bridge.current?.disconnectTarget().then(status => { applyTarget(status); refreshTargets(); }).catch((error: Error) => setNotice(error.message));
+                      }}>Вернуться к колоде PitchFlow</button>
+                      <label className="bridge-setting"><input type="checkbox" checked={pdfMatches} disabled={isSession || !slides[0]?.image} onChange={event => setPdfMatches(event.target.checked)} />PDF соответствует показу</label>
+                      {estimated && <label className="bridge-setting">Начальный номер слайда <input aria-label="Начальный номер внешнего слайда" type="number" min={1} max={2000} disabled={isSession} value={externalIndex + 1} onChange={event => {
+                        const value = Math.max(0, Math.min(1999, Number(event.target.value) - 1));
+                        externalPosition.current = value; setExternalIndex(value);
+                      }} /></label>}
+                      {isSession && <p className="settings-note">Для смены приложения сначала заверши выступление.</p>}
+                    </>}
+                  </>
+                ) : (
+                  <p className="settings-note">Мост не запущен — запусти npm run server, чтобы листать Keynote, PowerPoint и Google Slides.</p>
+                )}
+              </section>
+            )}
             <section className="settings-group settings-panel">
               <span className="settings-label">Камера и жесты</span>
               <label className="sensitivity" htmlFor="sensitivity"><span>Размах жеста <span>{sensitivity < .8 ? "малый" : sensitivity > 1 ? "большой" : "обычный"}</span></span><input id="sensitivity" type="range" min={.55} max={1.15} step={.05} value={sensitivity} onChange={event => setSensitivity(Number(event.target.value))} /></label>

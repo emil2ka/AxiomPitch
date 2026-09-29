@@ -611,6 +611,23 @@
 }
 @media (prefers-reduced-motion: reduce) { .coach-progress > i { transition: none; } }
 
+/* One clear task per row: no header layer, secondary controls behind settings. */
+.studio .workspace-heading { margin: 34px 0 26px; }
+.studio .stage-panel > div:nth-child(2) { border-radius: 0; box-shadow: none; }
+.studio .slide-frame { border-radius: 10px; box-shadow: 0 18px 60px #00000052; }
+.studio-paused .stage-panel > div:nth-child(2) { opacity: 1; }
+.studio-paused .slide-frame { opacity: .72; transition: opacity .4s; }
+.studio .slide-transport { justify-content: space-between; }
+.studio .below-slide { grid-template-columns: minmax(0, 1fr); }
+
+.show-line { display: flex; flex-direction: column; gap: 10px; }
+.show-status { margin: 0; font-size: 12px; line-height: 1.6; color: #5f748e; }
+.show-status.error { color: #d9b28c; }
+.show-line .text-button { justify-content: flex-start; margin: 0; padding: 4px 0; }
+
+.settings-panel-wide { grid-column: 1 / -1; }
+@media (prefers-reduced-motion: reduce) { .studio-paused .slide-frame { transition: none; } }
+
 @media (max-width: 650px) {
   .studio .control-panel { display: flex; flex-direction: column; gap: 28px; }
   .studio .workspace-heading h1 { font-size: 26px; }
