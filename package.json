@@ -8,6 +8,8 @@
     "build": "npm run setup:vision && tsc -b && vite build",
     "lint": "oxlint",
     "preview": "vite preview",
+    "server": "node --experimental-strip-types server/src/index.ts",
+    "overlay": "electron overlay/main.ts",
     "setup:vision": "node scripts/setup-vision.mjs",
     "postinstall": "npm run setup:vision",
     "test": "node --experimental-strip-types --test tests/*.test.ts"
@@ -21,14 +23,17 @@
     "react": "^19.2.8",
     "react-dom": "^19.2.8",
     "tailwindcss": "^4.3.3",
-    "three": "^0.186.1"
+    "three": "^0.186.1",
+    "ws": "^8.22.0"
   },
   "devDependencies": {
     "@types/node": "^24.13.3",
     "@types/react": "^19.2.18",
     "@types/react-dom": "^19.2.7",
     "@types/three": "^0.186.0",
+    "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.1.1",
+    "electron": "^44.4.5",
     "oxlint": "^1.81.0",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
