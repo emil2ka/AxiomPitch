@@ -537,6 +537,7 @@ button svg {
   gap: 18px;
 }
 .timer-panel,
+.target-panel,
 .camera-panel {
   background: var(--panel);
   border: 1px solid var(--line);
@@ -564,6 +565,44 @@ button svg {
 }
 .session-state.paused {
   color: #e1b881;
+}
+.bridge-state {
+  margin-left: auto;
+  color: #7d8b9f;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+}
+.bridge-state.online {
+  color: #9dc0ff;
+}
+.target-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.target-row select {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #323b4d;
+  border-radius: 8px;
+  background: #1d2431;
+  color: #bac9e0;
+  font: inherit;
+  font-size: 13px;
+}
+.target-row .button {
+  flex: 1 1 auto;
+}
+.target-status {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #91a0b6;
+}
+.target-status.error {
+  color: #e4b187;
 }
 .timer {
   margin: 20px 0 16px;
@@ -1024,6 +1063,7 @@ button svg {
     gap: 20px;
   }
   .timer-panel,
+  .target-panel,
   .camera-panel {
     padding: 17px;
   }
@@ -1152,6 +1192,7 @@ button svg {
     grid-template-columns: 1fr;
   }
   .timer-panel,
+  .target-panel,
   .camera-panel {
     padding: 20px;
   }
@@ -1203,4 +1244,33 @@ button svg {
   .text-button {
     min-height: 44px;
   }
+}
+/* ?overlay=1: the notch window above the audience screen. */
+html.overlay-page,
+html.overlay-page body {
+  min-width: 0;
+  background: transparent;
+  overflow: hidden;
+}
+.overlay-notch {
+  position: fixed;
+  inset: 0;
+  border-radius: 24px;
+  background: #000;
+  color: #96b9ec;
+  overflow: hidden;
+}
+.overlay-live {
+  position: absolute;
+  left: 16px;
+  bottom: 13px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: #478fff;
+  box-shadow: 0 0 8px 1px #478fff90;
+}
+.overlay-notch .notch-lock {
+  right: 12px;
+  bottom: 9px;
 }
