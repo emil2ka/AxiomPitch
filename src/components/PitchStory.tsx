@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { AnimatePresence, motion, useReducedMotion } from "motion/react";
-import { ArrowLeft, ArrowRight, Check, FileText, Hand, LockKeyhole, RotateCcw, Sparkles, Upload, UnlockKeyhole } from "lucide-react";
+import { ArrowLeft, ArrowRight, Check, FileText, Hand, LockKeyhole, RotateCcw, Upload, UnlockKeyhole } from "lucide-react";
 import { Metric } from "./PitchShowcase";
 import { PixelCompanion } from "./PixelCompanion";
 import type { CompanionAction } from "./PixelCompanion";
@@ -69,10 +69,10 @@ function GestureTrace({ command, running, replay, reduced, short = false }: { co
   const start = command === "previous" ? 95 : -95;
   const end = command === "previous" ? -95 : short ? -55 : 95;
   return <div className={`story-gesture-trace ${running ? "running" : ""}`} aria-hidden="true">
-    <span className="trace-end"><ArrowLeft size={16} /></span><div className="trace-path"><i /><i /><i /><i /><i /><i /><i /><i /><i /></div><span className="trace-end"><ArrowRight size={16} /></span>
+    <ArrowLeft size={15} className="trace-end" /><i className="trace-path" /><ArrowRight size={15} className="trace-end" />
     <motion.div key={`${command}-${replay}-${running}`} className="trace-hand" initial={reduced || stationary || !running ? false : { x: start }} animate={{ x: reduced || stationary || !running ? 0 : end }} transition={{ duration: 1.25, ease: [.4, 0, .2, 1] }}>
       {command === "hold" && running && <svg viewBox="0 0 60 60" className="trace-hold"><motion.circle cx="30" cy="30" r="27" fill="none" stroke="currentColor" strokeWidth="2" initial={{ pathLength: reduced ? 1 : 0 }} animate={{ pathLength: 1 }} transition={{ duration: reduced ? 0 : 1.5, ease: "linear" }} /></svg>}
-      <Hand size={30} strokeWidth={1.4} />
+      <Hand size={26} strokeWidth={1.3} />
     </motion.div>
   </div>;
 }
@@ -131,7 +131,7 @@ function ResultsScene({ reduced }: { reduced: boolean }) {
     <div className="story-result-title"><h4>Время<br /><span>по слайдам</span></h4><div className="story-total"><Metric value={272} time reduced={reduced} /><span>время выступления</span></div></div>
     <div className="story-chart" aria-label="Время по слайдам: 52, 68, 44, 72 и 36 секунд">{seconds.map((value, index) => <div key={index}><span>{value} с</span><div><motion.i initial={{ height: reduced ? `${value / 72 * 100}%` : 0 }} animate={{ height: `${value / 72 * 100}%` }} transition={{ duration: .9, delay: index * .12, ease: [.22, 1, .36, 1] }} className={index === 3 ? "peak" : ""} /></div><span>Слайд 0{index + 1}</span></div>)}</div>
     <div className="story-result-metrics"><span><Metric value={8} reduced={reduced} /><span>точных команд</span></span><span><Metric value={2} reduced={reduced} /><span>подсказки</span></span><span><strong>05</strong><span>слайдов</span></span></div>
-    <p className="story-result-insight"><Sparkles size={18} /><span>Слайд 04 — оставь одну главную мысль.</span></p>
+    <p className="story-result-insight">Слайд 04 — оставь одну главную мысль.</p>
   </div>;
 }
 
@@ -154,10 +154,10 @@ function CoachingScene({ active, reduced, onAction }: { active: boolean; reduced
     <div className="story-coach-stage">
       <div className="story-coach-preview"><StoryDeck index={fixed ? 3 : 2} reduced={reduced} /></div>
       <div className="story-coach-space" aria-label="Демонстрация подсказки для движения руки">
-        <div className="story-coach-target" aria-hidden="true"><ArrowRight size={26} /></div>
-        <svg className="story-coach-route" viewBox="0 0 500 160" aria-hidden="true"><path d="M70 110 C180 110 240 45 425 45" /><motion.path key={`route-${cycle}-${shown}`} d="M70 110 C180 110 240 45 425 45" initial={{ pathLength: reduced ? 1 : 0 }} animate={{ pathLength: fixed || shown === 2 ? 1 : .23 }} transition={{ duration: reduced ? 0 : 1.25, ease: "easeInOut" }} /></svg>
+        <ArrowRight className="story-coach-target" size={18} aria-hidden="true" />
+        <svg className="story-coach-route" viewBox="0 0 500 160" aria-hidden="true"><motion.path key={`route-${cycle}-${shown}`} d="M70 110 C180 110 240 45 425 45" initial={{ pathLength: reduced ? 1 : 0 }} animate={{ pathLength: fixed || shown === 2 ? 1 : .23 }} transition={{ duration: reduced ? 0 : 1.25, ease: "easeInOut" }} /></svg>
         <motion.div key={`palm-${cycle}-${shown}`} className={`story-coach-palm ${fixed ? "accepted" : ""}`} initial={reduced ? false : { x: 0, y: 0 }} animate={{ x: fixed || shown === 2 ? 230 : shown === 0 ? 35 : 0, y: fixed || shown === 2 ? -48 : 0 }} transition={{ duration: reduced ? 0 : 1.25, ease: [.4, 0, .2, 1] }}><Hand strokeWidth={1.1} /></motion.div>
-        <AnimatePresence mode="wait"><motion.div key={fixed ? "accepted" : "hint"} className={`story-hint-toast ${fixed ? "accepted" : ""}`} initial={reduced ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: .3 }} aria-live="polite"><span>{fixed ? <Check size={19} /> : <Sparkles size={19} />}</span><div><small>{fixed ? "ПОЛУЧИЛОСЬ" : "ПОДСКАЗКА ПОМОЩНИКА"}</small><p>{caption}</p></div></motion.div></AnimatePresence>
+        <AnimatePresence mode="wait"><motion.div key={fixed ? "accepted" : "hint"} className={`story-hint ${fixed ? "accepted" : ""}`} initial={reduced ? false : { opacity: 0, y: 12 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -8 }} transition={{ duration: .3 }} aria-live="polite"><small>{fixed ? "ПОЛУЧИЛОСЬ" : "ПОДСКАЗКА"}</small><p>{caption}</p></motion.div></AnimatePresence>
       </div>
     </div>
   </div>;
