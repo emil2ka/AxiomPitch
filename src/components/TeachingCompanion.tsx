@@ -1,7 +1,7 @@
 import { motion, useReducedMotion } from "motion/react";
 import type { Gesture } from "../lib/types";
 
-/** One character, with each wrist connected to its shoulder throughout the gesture. */
+/** The companion demonstrates gestures with its own floating hands. */
 export function TeachingCompanion({ gesture, playing = true }: { gesture: Gesture | null; playing?: boolean }) {
   const reduced = !!useReducedMotion();
   const moving = playing && !reduced;
@@ -16,10 +16,7 @@ export function TeachingCompanion({ gesture, playing = true }: { gesture: Gestur
         const x = moving && active && !hold && gesture ? [-side * 30, -side * 30, side * 12, side * 12, -side * 30] : [0, 0, 0, 0, 0];
         const y = moving && active && hold ? [10, 0, 0, 0, 10] : [0, 0, 0, 0, 0];
         const wrist = 150 + side * 78;
-        const shoulder = 150 + side * 14;
-        const paths = x.map((dx, i) => `M ${shoulder} 132 Q ${150 + side * 43 + dx * .5} ${145 + y[i] * .5} ${wrist + dx} ${133 + y[i]}`);
         return <g key={side}>
-          <motion.path d={paths[0]} animate={{d: moving ? paths : paths[0]}} transition={transition} fill="none" stroke="#3678bc" strokeWidth="9" strokeLinecap="round" />
           <motion.g animate={{x: moving ? x : 0, y: moving ? y : 0}} transition={transition}>
             <image href={`/companion/teaching/hand-${side < 0 ? "left" : "right"}.png`} x={wrist - 35} y="69" width="70" height="70" />
           </motion.g>

@@ -113,8 +113,8 @@ export function buildHandCage(bindings: FingerBinding[]) {
     }
   };
   const palm = [
-    [-.25, .06, .028], [-.18, .095, .044], [-.10, .14, .056],
-    [-.02, .155, .060], [.06, .145, .050], [.13, .12, .033],
+    [-.25, .050, .020], [-.18, .078, .030], [-.10, .122, .040],
+    [-.02, .134, .042], [.06, .130, .034], [.13, .114, .026],
   ];
   for (const [y, width, depth] of palm) for (let side = 0; side < 10; side++) {
     const angle = side * Math.PI * 2 / 10;
@@ -124,16 +124,16 @@ export function buildHandCage(bindings: FingerBinding[]) {
   for (const binding of bindings) {
     const start = positions.length / 3;
     const [a, b, c] = binding.segments;
-    const ringHeights = [0, a * .5, a, a + b, a + b + c * .65, a + b + c];
+    const ringHeights = [0, a * .5, a, a + b, a + b + c * .84, a + b + c];
     ringHeights.forEach((y, ring) => {
       const total = a + b + c;
-      const radius = binding.radius * (ring === ringHeights.length - 1 ? .12 : 1 - .18 * y / total);
+      const radius = binding.radius * .80 * (ring === ringHeights.length - 1 ? .22 : ring === ringHeights.length - 2 ? .72 : 1 - .18 * y / total);
       const segment = y < a ? 0 : 1;
       const blend = THREE.MathUtils.clamp((y - (segment ? a : 0)) / binding.segments[segment], 0, 1);
       const influence = THREE.MathUtils.clamp(y / .055, 0, 1);
       for (let side = 0; side < 8; side++) {
         const angle = side * Math.PI * 2 / 8;
-        point.set(Math.cos(angle) * radius, y, Math.sin(angle) * radius * .85).applyMatrix4(binding.matrix);
+        point.set(Math.cos(angle) * radius, y, Math.sin(angle) * radius * .72).applyMatrix4(binding.matrix);
         addVertex(point, [0, binding.firstIndex + segment, binding.firstIndex + segment + 1, 0], [1 - influence, influence * (1 - blend), influence * blend, 0]);
       }
     });

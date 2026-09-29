@@ -17,7 +17,7 @@ for (const style of ["solid", "cage"]) test(`${style} hand has bounded geometry 
   const positions = geometry.attributes.position, weights = geometry.attributes.skinWeight, indices = geometry.attributes.skinIndex;
   assert.ok(positions.count > (style === "solid" ? 10000 : 200));
   if (style === "cage") {
-    assert.ok(positions.count < 1800);
+    assert.equal(positions.count, 1500, "keep the existing 500-triangle topology");
     assert.equal(geometry.attributes.gridCoord.count, positions.count);
   }
   assert.ok(positions.count < 150000);
