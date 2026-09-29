@@ -33,10 +33,14 @@ function pickDisplay(id: number | null): Display {
 
 function place() {
   if (!win) return;
-  const { bounds } = pickDisplay(wanted.displayId);
+  const display = pickDisplay(wanted.displayId);
+  const { bounds } = display;
+  // A built-in MacBook screen hides its camera housing behind the menu-bar
+  // strip even in full screen, so the margin starts below that strip there.
+  const housing = display.internal ? display.workArea.y - bounds.y : 0;
   win.setBounds({
     x: Math.round(bounds.x + (bounds.width - size.width) / 2),
-    y: bounds.y + topMargin,
+    y: bounds.y + housing + topMargin,
     ...size,
   });
   if (wanted.visible) win.showInactive();
@@ -112,6 +116,9 @@ function createWindow() {
     minimizable: false,
     maximizable: false,
     fullscreenable: false,
+    // Frameless + this flag: macOS keeps the exact frame instead of pushing
+    // the window below the menu bar.
+    enableLargerThanScreen: true,
     skipTaskbar: true,
     focusable: false,
     show: false,
