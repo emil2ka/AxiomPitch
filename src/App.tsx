@@ -23,6 +23,8 @@ import {
   Monitor,
   Pause,
   Play,
+  Plug,
+  Presentation,
   RotateCcw,
   SlidersHorizontal,
   Square,
@@ -36,6 +38,20 @@ import { Avatar } from "./components/Avatar";
 import type { AvatarHandle } from "./components/Avatar";
 import { SlideView } from "./components/SlideView";
 import { useCamera } from "./hooks/useCamera";
+import {
+  apiBase,
+  apiEnabled,
+  saveNotes,
+  saveSession,
+  uploadPresentation,
+} from "./lib/api";
+import { BridgeClient, followTarget, isExternal } from "./lib/bridge-client";
+import type {
+  AppRef,
+  TargetId,
+  TargetInfo,
+  TargetStatus,
+} from "./lib/bridge-client";
 import { demoSlides, formatTime, readPdf } from "./lib/deck";
 import { GestureEngine } from "./lib/gestures";
 import { SessionClock } from "./lib/session";
@@ -71,6 +87,24 @@ const correctionNames: Record<string, string> = {
   wider: "Недостаточное движение",
   steady: "Ладонь двигалась при удержании",
 };
+const targetNames: Record<TargetId, string> = {
+  pitchflow: "PitchFlow (эта колода)",
+  keynote: "Keynote",
+  powerpoint: "PowerPoint",
+  chrome: "Google Slides в Chrome",
+  frontmost: "Другое приложение (стрелки)",
+};
+function describeTarget(status: TargetStatus | null, estimated: boolean) {
+  if (!status?.connected || !status.app)
+    return "Цель не подключена: листается колода PitchFlow.";
+  if (status.app === "pitchflow") return "Листается колода PitchFlow.";
+  const label = status.label ?? targetNames[status.app];
+  if (status.slideIndex !== null && status.slideCount !== null)
+    return `${label} · слайд ${status.slideIndex + 1} из ${status.slideCount}`;
+  return estimated
+    ? `${label} · номер слайда оценочный, приложение его не сообщает`
+    : `${label} · подключено`;
+}
 
 function Presenter() {
   const [slides, setSlides] = useState<Slide[]>(demoSlides);
@@ -119,6 +153,18 @@ function Presenter() {
   const [pulse, setPulse] = useState<{ id: number; gesture: Gesture } | null>(
     null,
   );
+  const [bridgeOnline, setBridgeOnline] = useState(false);
+  const [slideTarget, setSlideTarget] = useState<TargetStatus | null>(null);
+  const [targetList, setTargetList] = useState<TargetInfo[]>([]);
+  const [runningApps, setRunningApps] = useState<AppRef[]>([]);
+  const [chosenTarget, setChosenTarget] = useState<TargetId>("pitchflow");
+  const [chosenApp, setChosenApp] = useState("");
+  const [estimated, setEstimated] = useState(false);
+  const [overlayVisible, setOverlayVisible] = useState(false);
+  const [presentationId, setPresentationId] = useState<string | null>(null);
+  const external = bridgeOnline && isExternal(slideTarget);
+  const bridge = useRef<BridgeClient | null>(null);
+  const uploadToken = useRef(0);
   const avatar = useRef<AvatarHandle>(null);
   const engine = useRef(new GestureEngine());
   const session = useRef<SessionClock | null>(null);
@@ -143,6 +189,7 @@ function Presenter() {
     tutorialVisible,
     stage,
     mode,
+    external,
   });
   useLayoutEffect(() => {
     current.current = {
@@ -153,8 +200,9 @@ function Presenter() {
       tutorialVisible,
       stage,
       mode,
+      external,
     };
-  }, [slides, index, locked, tutorial, tutorialVisible, stage, mode]);
+  }, [slides, index, locked, tutorial, tutorialVisible, stage, mode, external]);
   const reducedMotion = useReducedMotion();
 
   const goTo = useCallback((next: number) => {
@@ -164,10 +212,58 @@ function Presenter() {
     current.current.index = safe;
     setIndex(safe);
   }, []);
+  /** Lock is local to the tab; the bridge and the notch only hear about it. */
+  const applyLock = useCallback((value: boolean) => {
+    if (current.current.locked === value) return;
+    current.current.locked = value;
+    setLocked(value);
+    bridge.current?.publishCommand("toggle", value);
+  }, []);
+  /** Keyboard and buttons: into the connected app, else through the deck. */
+  const step = useCallback(
+    (gesture: "next" | "previous") => {
+      const client = bridge.current;
+      if (current.current.external && client?.online) {
+        // Manual steps ignore the gesture lock; the new position arrives as `target`.
+        client
+          .control(gesture, false)
+          .catch((error: Error) => setNotice(error.message));
+        return;
+      }
+      goTo(current.current.index + (gesture === "next" ? 1 : -1));
+    },
+    [goTo],
+  );
+  const applyTarget = useCallback(
+    (status: TargetStatus) => {
+      setSlideTarget(status);
+      if (status.error) {
+        setNotice(status.error);
+        setFeedback({ kind: "error", message: status.error });
+        successUntil.current = performance.now() + 2500;
+        return;
+      }
+      if (!isExternal(status)) {
+        setEstimated(false);
+        return;
+      }
+      const move = followTarget(
+        status,
+        current.current.index,
+        current.current.slides.length,
+      );
+      if (!move) return;
+      setEstimated(move.estimated);
+      if (move.index !== current.current.index) goTo(move.index);
+    },
+    [goTo],
+  );
 
   const onFrame = useCallback(
     (frame: VisionFrame) => {
       avatar.current?.draw(frame);
+      // The notch on the audience screen mirrors the same pose, never the video.
+      bridge.current?.publishFrame(frame);
       const state = current.current;
       if (state.tutorialVisible && state.tutorial === 0) {
         const pose = frame.pose;
@@ -233,17 +329,23 @@ function Presenter() {
           current.current.tutorial = state.tutorial + 1;
         }
         if (gesture === "toggle") {
-          current.current.locked = !state.locked;
-          setLocked(!state.locked);
+          // Toggle only locks gestures here; it is never sent to the slide app.
+          applyLock(!state.locked);
           nextFeedback.message = state.locked
             ? "Жесты включены"
             : "Жесты заблокированы";
         } else if (state.stage !== "finished" && state.stage !== "paused") {
           const next = state.index + (gesture === "next" ? 1 : -1);
-          if (next < 0 || next >= state.slides.length)
+          if (state.external && bridge.current?.publishCommand(gesture, false))
+            nextFeedback.message =
+              gesture === "next" ? "Следующий слайд" : "Предыдущий слайд";
+          else if (next < 0 || next >= state.slides.length)
             nextFeedback.message =
               next < 0 ? "Это первый слайд" : "Это последний слайд";
-          else goTo(next);
+          else {
+            goTo(next);
+            bridge.current?.publishCommand(gesture, false);
+          }
         } else
           nextFeedback.message =
             state.stage === "paused"
@@ -282,7 +384,7 @@ function Presenter() {
             : nextFeedback,
         );
     },
-    [goTo],
+    [goTo, applyLock],
   );
   const {
     status: cameraStatus,
@@ -318,16 +420,67 @@ function Presenter() {
         return;
       if (event.key === "ArrowRight") {
         event.preventDefault();
-        goTo(current.current.index + 1);
+        step("next");
       }
       if (event.key === "ArrowLeft") {
         event.preventDefault();
-        goTo(current.current.index - 1);
+        step("previous");
       }
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [goTo]);
+  }, [step]);
+  const refreshTargets = useCallback(() => {
+    bridge.current
+      ?.targets()
+      .then(({ current: status, targets, apps }) => {
+        setSlideTarget(status);
+        setTargetList(targets);
+        setRunningApps(apps);
+      })
+      .catch(() => undefined);
+  }, []);
+  useEffect(() => {
+    if (!apiEnabled) return;
+    const client = new BridgeClient(apiBase, "speaker", {
+      online: (online) => {
+        setBridgeOnline(online);
+        if (online) refreshTargets();
+      },
+      hello: (hello) => setOverlayVisible(hello.overlay.visible),
+      target: applyTarget,
+      overlay: (state) => setOverlayVisible(state.visible),
+      // POST /api/control on the PitchFlow deck: step as the arrows would.
+      control: (gesture) =>
+        goTo(current.current.index + (gesture === "next" ? 1 : -1)),
+    });
+    bridge.current = client;
+    client.start();
+    return () => {
+      client.stop();
+      bridge.current = null;
+    };
+  }, [applyTarget, goTo, refreshTargets]);
+  useEffect(() => {
+    // For the notch only the fact of a live session matters; no timer there.
+    bridge.current?.publishSession({
+      stage,
+      mode,
+      index,
+      slideCount: slides.length,
+      durationMs: session.current?.duration ?? 0,
+    });
+  }, [stage, mode, index, slides.length, bridgeOnline]);
+  useEffect(() => {
+    if (!presentationId) return;
+    const timer = setTimeout(() => {
+      saveNotes(
+        presentationId,
+        slides.map((slide) => slide.notes),
+      ).catch(() => undefined);
+    }, 800);
+    return () => clearTimeout(timer);
+  }, [slides, presentationId]);
   useEffect(() => {
     channel.current?.postMessage({ type: "slide", slide: slides[index] });
   }, [slides, index]);
@@ -380,6 +533,16 @@ function Presenter() {
       session.current = null;
       setDuration(0);
       engine.current.reset();
+      setPresentationId(null);
+      if (apiEnabled) {
+        // A server copy is extra: the deck above is already read locally.
+        const token = ++uploadToken.current;
+        uploadPresentation(file)
+          .then((stored) => {
+            if (uploadToken.current === token) setPresentationId(stored.id);
+          })
+          .catch((error) => console.warn("PitchFlow server:", error));
+      }
     } catch (error) {
       setNotice(
         error instanceof Error
@@ -392,6 +555,23 @@ function Presenter() {
     }
   };
   const openAudience = () => {
+    const client = bridge.current;
+    if (client?.online) {
+      // With an external app the button toggles the notch over its show.
+      const visible = !(external && overlayVisible);
+      client
+        .setOverlay(visible)
+        .then((state) => {
+          setOverlayVisible(state.visible);
+          if (state.visible && !state.shellConnected)
+            setNotice(
+              "Запусти npm run overlay, чтобы чёлка появилась на экране аудитории.",
+            );
+        })
+        .catch((error: Error) => setNotice(error.message));
+    }
+    // Keynote or PowerPoint is itself the audience screen: no popup over it.
+    if (external) return;
     if (audienceWindow.current && !audienceWindow.current.closed) {
       audienceWindow.current.focus();
       return;
@@ -434,8 +614,7 @@ function Presenter() {
     setDuration(0);
     setStage("running");
     current.current.stage = "running";
-    setLocked(false);
-    current.current.locked = false;
+    applyLock(false);
     engine.current.reset();
     channel.current?.postMessage({ type: "slide", slide: slides[index] });
     setTutorialVisible(false);
@@ -475,6 +654,11 @@ function Presenter() {
         "Итоги готовы, но браузер не смог сохранить историю на этом устройстве.",
       );
     }
+    // The server keeps a copy; the local history above stays the primary one.
+    if (apiEnabled)
+      saveSession(completed, presentationId).catch((error) =>
+        console.warn("PitchFlow server:", error),
+      );
     channel.current?.postMessage({ type: "end" });
   };
   const restartTutorial = () => {
@@ -484,8 +668,7 @@ function Presenter() {
     setCalibration(0);
     calibrationStart.current = null;
     engine.current.reset();
-    setLocked(false);
-    current.current.locked = false;
+    applyLock(false);
   };
   const downloadResult = () => {
     if (!result) return;
@@ -597,11 +780,15 @@ function Presenter() {
             <History size={19} />
           </button>
           <button
-            className={`button secondary ${audienceOpen ? "selected" : ""}`}
+            className={`button secondary ${audienceOpen || overlayVisible ? "selected" : ""}`}
             onClick={openAudience}
           >
             <Monitor size={17} />
-            <span>{audienceOpen ? "Экран открыт" : "Экран аудитории"}</span>
+            <span>
+              {audienceOpen || overlayVisible
+                ? "Экран открыт"
+                : "Экран аудитории"}
+            </span>
           </button>
         </div>
       </header>
@@ -656,7 +843,15 @@ function Presenter() {
         <section className="stage-panel" aria-label="Презентация">
           <div className="stage-label">
             <span>ТЕКУЩИЙ СЛАЙД</span>
-            <span className="slide-counter">
+            <span
+              className="slide-counter"
+              title={
+                external && estimated
+                  ? "Приложение не сообщает номер слайда: позиция оценочная"
+                  : undefined
+              }
+            >
+              {external && estimated ? "≈ " : ""}
               {String(index + 1).padStart(2, "0")}{" "}
               <span>/ {String(slides.length).padStart(2, "0")}</span>
             </span>
@@ -674,8 +869,8 @@ function Presenter() {
               <button
                 className="icon-button"
                 aria-label="Предыдущий слайд"
-                disabled={index === 0}
-                onClick={() => goTo(index - 1)}
+                disabled={!external && index === 0}
+                onClick={() => step("previous")}
               >
                 <ArrowLeft size={20} />
               </button>
@@ -693,6 +888,8 @@ function Presenter() {
                         className={`slide-dot ${i === index ? "active" : ""}`}
                         aria-label={`Слайд ${i + 1}`}
                         aria-current={i === index ? "step" : undefined}
+                        // An external app cannot jump; it only steps.
+                        disabled={external}
                         onClick={() => goTo(i)}
                       />
                     );
@@ -701,8 +898,8 @@ function Presenter() {
               <button
                 className="icon-button"
                 aria-label="Следующий слайд"
-                disabled={index === slides.length - 1}
-                onClick={() => goTo(index + 1)}
+                disabled={!external && index === slides.length - 1}
+                onClick={() => step("next")}
               >
                 <ArrowRight size={20} />
               </button>
@@ -726,10 +923,7 @@ function Presenter() {
             <div className="next-slide-panel">
               <span className="panel-caption">ДАЛЕЕ</span>
               {slides[index + 1] ? (
-                <button
-                  className="next-preview"
-                  onClick={() => goTo(index + 1)}
-                >
+                <button className="next-preview" onClick={() => step("next")}>
                   <SlideView slide={slides[index + 1]} small />
                   <span>
                     {slides[index + 1].title.replace(/\n/g, " ")}
@@ -837,6 +1031,87 @@ function Presenter() {
               </button>
             )}
           </section>
+          {apiEnabled && (
+            <section className="target-panel">
+              <div className="panel-heading">
+                <Presentation size={17} />
+                <span>Где листать слайды</span>
+                <span
+                  className={`bridge-state ${bridgeOnline ? "online" : ""}`}
+                >
+                  {bridgeOnline ? "МОСТ" : "НЕТ МОСТА"}
+                </span>
+              </div>
+              {bridgeOnline ? (
+                <>
+                  <div className="target-row">
+                    <select
+                      aria-label="Приложение со слайдами"
+                      value={chosenTarget}
+                      onFocus={refreshTargets}
+                      onChange={(event) =>
+                        setChosenTarget(event.target.value as TargetId)
+                      }
+                    >
+                      {(targetList.length
+                        ? targetList
+                        : [{ id: "pitchflow" as const, available: true }]
+                      ).map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {targetNames[item.id]}
+                          {item.available ? "" : " · не запущено"}
+                        </option>
+                      ))}
+                    </select>
+                    {chosenTarget === "frontmost" && (
+                      <select
+                        aria-label="Приложение для стрелок"
+                        value={chosenApp}
+                        onFocus={refreshTargets}
+                        onChange={(event) => setChosenApp(event.target.value)}
+                      >
+                        <option value="">Выбери приложение</option>
+                        {runningApps.map((app) => (
+                          <option key={app.bundleId} value={app.bundleId}>
+                            {app.name}
+                          </option>
+                        ))}
+                      </select>
+                    )}
+                    <button
+                      className="button secondary"
+                      disabled={chosenTarget === "frontmost" && !chosenApp}
+                      onClick={() => {
+                        bridge.current
+                          ?.connectTarget(
+                            chosenTarget,
+                            chosenTarget === "frontmost"
+                              ? chosenApp
+                              : undefined,
+                          )
+                          .then(refreshTargets)
+                          .catch((error: Error) => setNotice(error.message));
+                      }}
+                    >
+                      <Plug size={16} />
+                      Подключить
+                    </button>
+                  </div>
+                  <p
+                    className={`target-status ${slideTarget?.error ? "error" : ""}`}
+                  >
+                    {slideTarget?.error ??
+                      describeTarget(slideTarget, estimated)}
+                  </p>
+                </>
+              ) : (
+                <p className="target-status">
+                  Запусти npm run server, чтобы листать Keynote, PowerPoint или
+                  Google Slides. Колода PitchFlow работает и без него.
+                </p>
+              )}
+            </section>
+          )}
           <section className="camera-panel">
             <div className="panel-heading">
               <Camera size={17} />
@@ -911,8 +1186,7 @@ function Presenter() {
                         className="text-button"
                         onClick={() => {
                           setTutorialVisible(false);
-                          setLocked(false);
-                          current.current.locked = false;
+                          applyLock(false);
                           engine.current.reset();
                         }}
                       >
@@ -958,8 +1232,7 @@ function Presenter() {
                 <button
                   className="button secondary full"
                   onClick={() => {
-                    setLocked(!locked);
-                    current.current.locked = !locked;
+                    applyLock(!locked);
                     engine.current.reset();
                   }}
                 >
@@ -1002,9 +1275,11 @@ function Presenter() {
           Камера и PDF остаются на устройстве
         </span>
         <span>
-          {cameraStatus === "ready"
-            ? "Чёлка видна только на экране спикера"
-            : "Можно начать с демо-слайдов или своего PDF"}
+          {overlayVisible
+            ? "Чёлка видна и на экране аудитории"
+            : cameraStatus === "ready"
+              ? "Чёлка видна только на экране спикера"
+              : "Можно начать с демо-слайдов или своего PDF"}
         </span>
       </footer>
       <dialog
