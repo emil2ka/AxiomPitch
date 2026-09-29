@@ -18,7 +18,9 @@ export class KeynoteTarget implements Target {
   }
   async connect() {
     if (!(await this.available()))
-      throw new TargetError("Keynote не запущен. Открой презентацию в Keynote.");
+      throw new TargetError(
+        "Keynote не запущен. Открой презентацию в Keynote.",
+      );
   }
   async disconnect() {}
   next() {
@@ -41,8 +43,7 @@ end tell`,
     return parseSlidePosition(position);
   }
   private async show(direction: "next" | "previous") {
-    if (!(await this.available()))
-      throw new TargetError("Keynote не запущен.");
+    if (!(await this.available())) throw new TargetError("Keynote не запущен.");
     const result = await this.system.run(
       `tell application id "${bundleId}"
   if not playing then return "not-playing"
