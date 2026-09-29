@@ -209,6 +209,64 @@ test("hands out of view or relaxed while talking are calm, not errors", () => {
   assert.deepEqual(codes(talking), []);
   assert.ok(talking.every((frame) => frame.kind === "idle"));
 });
+/** The palm turned around its wrist (degrees, clockwise on screen) and resized. */
+function turned(x: number, y: number, degrees: number, size = 1): Point[] {
+  const angle = (degrees * Math.PI) / 180;
+  const wrist = { x, y: y + 0.1 * size };
+  return palm(x, y).map((point) => {
+    const dx = (point.x - x) * size;
+    const dy = (point.y - (y + 0.1)) * size;
+    return {
+      x: wrist.x + dx * Math.cos(angle) - dy * Math.sin(angle),
+      y: wrist.y + dx * Math.sin(angle) + dy * Math.cos(angle),
+    };
+  });
+}
+test("a relaxed hand in view does not hide the other hand being shown", () => {
+  const engine = new GestureEngine();
+  const resting = palm(0.25, 0.6, false);
+  const frames: Feedback[] = [];
+  for (let t = 0; t <= 600; t += 33)
+    frames.push(engine.update([], [resting], t, false));
+  for (let t = 0; t <= 200; t += 33)
+    frames.push(engine.update([], [resting, palm(0.5)], 633 + t, false));
+  for (let t = 0; t <= 300; t += 33)
+    frames.push(
+      engine.update([], [resting, palm(0.5 + 0.3 * (t / 300))], 866 + t, false),
+    );
+  assert.deepEqual(gestures(frames), ["next"]);
+});
+test("a small hand at the back of the room neither takes over nor raises errors", () => {
+  const engine = new GestureEngine();
+  const back = turned(0.8, 0.3, 0, 0.3);
+  const frames: Feedback[] = [...still(engine, [0.4, 0.4], 0, 200)];
+  for (let t = 0; t <= 300; t += 33)
+    frames.push(
+      engine.update([], [palm(0.4 + 0.3 * (t / 300)), back], 233 + t, false),
+    );
+  // The speaker lowers the hand; someone at the back keeps a palm up.
+  for (let t = 0; t <= 3000; t += 33)
+    frames.push(engine.update([], [back], 700 + t, false));
+  assert.deepEqual(gestures(frames), ["next"]);
+  assert.deepEqual(codes(frames), []);
+});
+test("fingers pointing sideways are not a command; a tilted palm still is", () => {
+  const sideways = new GestureEngine();
+  const frames: Feedback[] = [];
+  for (let t = 0; t <= 500; t += 33)
+    frames.push(
+      sideways.update([], [turned(0.4 + 0.3 * Math.min(1, t / 300), 0.4, 80)], t, false),
+    );
+  assert.deepEqual(gestures(frames), []);
+  assert.match(frames.at(-1)!.message, /пальцами вверх/);
+  const tilted = new GestureEngine();
+  const swipe: Feedback[] = [];
+  for (let t = 0; t <= 500; t += 33)
+    swipe.push(
+      tilted.update([], [turned(0.4 + 0.3 * Math.max(0, (t - 200) / 300), 0.4, 45)], t, false),
+    );
+  assert.deepEqual(gestures(swipe), ["next"]);
+});
 test("the same physical swipe counts the same on 4:3 and 16:9 cameras", () => {
   // A palm 72 px tall on a 720 px high frame, swiped 160 or 90 px sideways.
   const hand = (pixels: number, width: number) =>
