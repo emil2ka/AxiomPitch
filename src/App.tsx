@@ -366,7 +366,7 @@ function Presenter() {
       const state = calibrationRef.current;
       if (!state) return;
       const engine = calibrationEngine.current;
-      const feedback = engine.update(frame.pose, frame.hands, frame.time, false);
+      const feedback = engine.update(frame.pose, frame.hands, frame.time, false, frame.aspect);
       let next: CalibrationState = {
         ...state,
         feedback: feedback.message,
@@ -415,8 +415,9 @@ function Presenter() {
         frame.time - calibrationLogAt.current > 1200
       ) {
         calibrationLogAt.current = frame.time;
+        // "Wider" means the swipe fell short: ask for a smaller one.
         setSensitivity((value) =>
-          Math.min(1.15, Math.round((value + 0.08) * 100) / 100),
+          Math.max(0.55, Math.round((value - 0.08) * 100) / 100),
         );
         next.feedback = "Порог ослаблен — попробуй ещё раз";
       }
@@ -469,6 +470,7 @@ function Presenter() {
         frame.hands,
         frame.time,
         state.locked,
+        frame.aspect,
       );
       if (debugGesturesRef.current) {
         if (frame.time - debugPaint.current > 220) {
