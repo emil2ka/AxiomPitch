@@ -140,6 +140,7 @@ self.onmessage = async (event: MessageEvent) => {
       handWorlds: hands.worldLandmarks.map(mirrorWorld),
       handLabels: hands.handedness.map(labels => labels[0]?.categoryName ?? ""),
       handScores: hands.handedness.map(labels => labels[0]?.score ?? 0),
+      aspect: bitmap.width / bitmap.height,
       duration: performance.now() - started,
     };
     self.postMessage(frame);
