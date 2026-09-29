@@ -98,7 +98,7 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: () => void }) {
       else setFeedback({ kind: "progress", message: "Хорошо. Останься так на секунду.", progress });
       return;
     }
-    const result = engine.current.update(frame.pose, frame.hands, frame.time, state.locked);
+    const result = engine.current.update(frame.pose, frame.hands, frame.time, state.locked, frame.aspect);
     if (result.kind === "success" && result.gesture) {
       const next = applyPracticeGesture(atStep, state, result.gesture);
       if (next === state) {
