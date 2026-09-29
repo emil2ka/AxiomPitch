@@ -34,3 +34,4 @@ work/
 
 # Local server storage: SQLite database and uploaded PDFs never go to git.
 server/data/
+.gstack/
