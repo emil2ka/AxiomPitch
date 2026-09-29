@@ -28,7 +28,11 @@ function exec(file: string, args: string[], timeout = 4000) {
 export function explainAppleScriptError(message: string): string {
   if (/-1743|not authori[sz]ed to send apple events/i.test(message))
     return "macOS запретил управление приложением: разреши его в Настройки → Конфиденциальность → Автоматизация.";
-  if (/-1719|-25211|assistive access|not allowed to send keystrokes/i.test(message))
+  if (
+    /-1719|-25211|assistive access|not allowed to send keystrokes/i.test(
+      message,
+    )
+  )
     return "Нужен Универсальный доступ: добавь терминал с сервером в Настройки → Конфиденциальность → Универсальный доступ.";
   if (/-1712|timed out/i.test(message))
     return "Приложение не ответило вовремя. Попробуй ещё раз.";
