@@ -41,7 +41,8 @@ async function upload(store: Store, { req, res, base }: Context) {
     throw new HttpError(400, "Не удалось разобрать загрузку.");
   }
   const file = form.get("file");
-  if (!(file instanceof Blob)) throw new HttpError(400, "Нет файла в поле file.");
+  if (!(file instanceof Blob))
+    throw new HttpError(400, "Нет файла в поле file.");
   const bytes = new Uint8Array(await file.arrayBuffer());
   let pageCount: number;
   try {
