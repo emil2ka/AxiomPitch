@@ -18,9 +18,9 @@ import {
   Clock3,
   FileUp,
   Hand,
-  History,
   LoaderCircle,
   LockKeyhole,
+  LogOut,
   Monitor,
   Pause,
   Play,
@@ -35,8 +35,10 @@ import {
 import { motion, useReducedMotion } from "motion/react";
 import { Audience } from "./components/Audience";
 import { flushSync } from "react-dom";
-import { Landing, PitchBrand } from "./components/Landing";
+import { Landing } from "./components/Landing";
 import { PixelCompanion } from "./components/PixelCompanion";
+import type { CompanionAction } from "./components/PixelCompanion";
+import { StudioSidebar } from "./components/StudioSidebar";
 import "./studio.css";
 import "./speaker-transition.css";
 import "./bridge-controls.css";
@@ -58,6 +60,7 @@ import type {
   TargetInfo,
   TargetStatus,
 } from "./lib/bridge-client";
+import { clearAccount, loadAccount, markLearned } from "./lib/account";
 import { demoSlides, formatTime, readPdf } from "./lib/deck";
 import { GestureEngine } from "./lib/gestures";
 import { SessionClock } from "./lib/session";
@@ -70,10 +73,37 @@ import type {
 } from "./lib/types";
 
 const RegistrationPage = lazy(() => import("./components/RegistrationPage").then(module => ({ default: module.RegistrationPage })));
+const LoginPage = lazy(() => import("./components/LoginPage").then(module => ({ default: module.LoginPage })));
 const LearningPage = lazy(() => import("./components/LearningPage").then(module => ({ default: module.LearningPage })));
 const CompanionPreview = lazy(() => import("./components/CompanionPreview").then(module => ({ default: module.CompanionPreview })));
 
 type Stage = "idle" | "running" | "paused" | "finished";
+type GestureDebug = {
+  hands: number;
+  open: number;
+  scale: number;
+  dx: number;
+  dy: number;
+  elapsed: number;
+  threshold: number;
+  locked: boolean;
+  kind: string;
+  code: string;
+};
+type GestureDebugEntry = { message: string; code: string; kind: string };
+type CalibrationState = {
+  step: 0 | 1 | 2 | 3 | 4;
+  feedback: string;
+  kind: string;
+  progress: number;
+};
+const calibrationSteps = ["Ладонь", "Вправо", "Влево", "Удержание"];
+const calibrationMessages = [
+  "Покажи открытую ладонь на удобном расстоянии",
+  "Проведи ладонью вправо, как на выступлении",
+  "Теперь влево",
+  "Задержи ладонь на месте на полторы секунды",
+];
 const correctionNames: Record<string, string> = {
   frame: "Ладонь вне кадра",
   "lost-hand": "Ладонь потерялась в движении",
@@ -90,16 +120,21 @@ const targetNames: Record<TargetId, string> = {
   chrome: "Google Slides в Chrome",
   frontmost: "Другое приложение (стрелки)",
 };
+function slidesWord(count: number | null | undefined) {
+  if (count === null || count === undefined) return "слайдов";
+  const mod10 = count % 10;
+  const mod100 = count % 100;
+  if (mod10 === 1 && mod100 !== 11) return "слайд";
+  if (mod10 >= 2 && mod10 <= 4 && (mod100 < 12 || mod100 > 14)) return "слайда";
+  return "слайдов";
+}
 function describeTarget(status: TargetStatus | null, estimated: boolean) {
-  if (!status?.connected || !status.app)
-    return "Цель не подключена: листается колода PitchFlow.";
-  if (status.app === "pitchflow") return "Листается колода PitchFlow.";
+  if (!status?.connected || !status.app || status.app === "pitchflow")
+    return "";
   const label = status.label ?? targetNames[status.app];
   if (status.slideIndex !== null && status.slideCount !== null)
     return `${label} · слайд ${status.slideIndex + 1} из ${status.slideCount}`;
-  return estimated
-    ? `${label} · номер слайда оценочный, приложение его не сообщает`
-    : `${label} · подключено`;
+  return estimated ? `${label} · номер оценочный` : `${label} · подключено`;
 }
 
 function Presenter() {
@@ -117,7 +152,9 @@ function Presenter() {
   const [target, setTarget] = useState(5);
   const [result, setResult] = useState<SessionResult | null>(null);
   const [resultsOpen, setResultsOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(false);
+  const [historyOpen, setHistoryOpen] = useState(
+    () => new URLSearchParams(location.search).get("history") === "1",
+  );
   const [history, setHistory] = useState<SessionResult[]>(() => {
     try {
       const saved: unknown = JSON.parse(
@@ -141,7 +178,54 @@ function Presenter() {
   });
   const [pdfProgress, setPdfProgress] = useState<number | null>(null);
   const [notice, setNotice] = useState("");
-  const [sensitivity, setSensitivity] = useState(0.85);
+  const [sensitivity, setSensitivity] = useState(() => {
+    try {
+      const saved = Number(localStorage.getItem("axiompitch-sensitivity"));
+      return Number.isFinite(saved) && saved >= 0.55 && saved <= 1.15
+        ? saved
+        : 0.85;
+    } catch {
+      return 0.85;
+    }
+  });
+  const [view, setView] = useState<"deck" | "settings">(() =>
+    new URLSearchParams(location.search).get("view") === "settings"
+      ? "settings"
+      : "deck",
+  );
+  const [account] = useState(() => loadAccount());
+  const [calibration, setCalibration] = useState<CalibrationState | null>(null);
+  const calibrationRef = useRef<CalibrationState | null>(null);
+  const calibrationEngine = useRef(new GestureEngine());
+  const calibrationStable = useRef(0);
+  const calibrationLast = useRef(0);
+  const calibrationPaint = useRef(0);
+  const calibrationLogAt = useRef(0);
+  const [debugGestures, setDebugGestures] = useState(() => {
+    try {
+      return localStorage.getItem("axiompitch-gesture-debug") === "1";
+    } catch {
+      return false;
+    }
+  });
+  const [gestureDebug, setGestureDebug] = useState<GestureDebug | null>(null);
+  const [debugLog, setDebugLog] = useState<GestureDebugEntry[]>([]);
+  const calibrationDialogRef = useRef<HTMLDialogElement>(null);
+  const debugGesturesRef = useRef(debugGestures);
+  const debugPaint = useRef(0);
+  const debugLogAt = useRef(0);
+  const debugLastMessage = useRef("");
+  useEffect(() => {
+    debugGesturesRef.current = debugGestures;
+    try {
+      localStorage.setItem(
+        "axiompitch-gesture-debug",
+        debugGestures ? "1" : "0",
+      );
+    } catch {
+      // Private mode: keep the flag for this tab only.
+    }
+  }, [debugGestures]);
   const [audienceOpen, setAudienceOpen] = useState(false);
   const [pulse, setPulse] = useState<{ id: number; gesture: Gesture } | null>(
     null,
@@ -274,10 +358,111 @@ function Presenter() {
     [],
   );
 
+  const updateCalibration = useCallback((next: CalibrationState | null) => {
+    calibrationRef.current = next;
+    setCalibration(next);
+  }, []);
+  const handleCalibration = useCallback(
+    (frame: VisionFrame) => {
+      const state = calibrationRef.current;
+      if (!state) return;
+      const engine = calibrationEngine.current;
+      const feedback = engine.update(frame.pose, frame.hands, frame.time, false);
+      let next: CalibrationState = {
+        ...state,
+        feedback: feedback.message,
+        kind: feedback.kind,
+        progress: feedback.progress ?? 0,
+      };
+      if (state.step === 0) {
+        const dt = calibrationLast.current
+          ? Math.min(120, frame.time - calibrationLast.current)
+          : 0;
+        calibrationLast.current = frame.time;
+        calibrationStable.current =
+          engine.debug.open > 0 ? calibrationStable.current + dt : 0;
+        next.progress = Math.min(1, calibrationStable.current / 1200);
+        next.feedback =
+          engine.debug.open > 0
+            ? "Ладонь вижу — держи ещё немного"
+            : "Покажи открытую ладонь";
+        if (calibrationStable.current >= 1200) {
+          engine.reset();
+          calibrationLast.current = 0;
+          next = {
+            ...next,
+            step: 1,
+            progress: 0,
+            feedback: "Теперь проведи рукой",
+          };
+        }
+      } else if (feedback.kind === "success") {
+        if (state.step === 1 && feedback.gesture === "next") {
+          engine.reset();
+          next = { ...next, step: 2, progress: 0, feedback: "Хорошо. Проведи влево" };
+        } else if (state.step === 2 && feedback.gesture === "previous") {
+          engine.reset();
+          next = { ...next, step: 3, progress: 0, feedback: "Осталось удержание" };
+        } else if (state.step === 3 && feedback.gesture === "toggle") {
+          next = { ...next, step: 4, progress: 1, feedback: "Жесты настроены" };
+        } else if (feedback.gesture === "toggle") {
+          // An accidental hold during a swipe step only re-arms the practice.
+          engine.reset();
+          next.feedback = "Сначала проведи рукой, удержание — в конце";
+        }
+      } else if (
+        feedback.kind === "error" &&
+        feedback.code === "wider" &&
+        frame.time - calibrationLogAt.current > 1200
+      ) {
+        calibrationLogAt.current = frame.time;
+        setSensitivity((value) =>
+          Math.min(1.15, Math.round((value + 0.08) * 100) / 100),
+        );
+        next.feedback = "Порог ослаблен — попробуй ещё раз";
+      }
+      if (
+        next.step !== state.step ||
+        frame.time - calibrationPaint.current > 160
+      ) {
+        calibrationPaint.current = frame.time;
+        updateCalibration(next);
+      }
+    },
+    [updateCalibration],
+  );
+  const startCalibration = () => {
+    if (isSession) {
+      setNotice("Сначала заверши выступление — калибровка доступна в покое.");
+      return;
+    }
+    calibrationEngine.current.reset();
+    calibrationStable.current = 0;
+    calibrationLast.current = 0;
+    updateCalibration({
+      step: 0,
+      feedback: "Покажи открытую ладонь",
+      kind: "idle",
+      progress: 0,
+    });
+  };
+  const closeCalibration = () => {
+    calibrationEngine.current.reset();
+    updateCalibration(null);
+  };
+  const logout = () => {
+    clearAccount();
+    window.location.assign("/register");
+  };
+
   const onFrame = useCallback(
     (frame: VisionFrame) => {
       // The notch on the audience screen mirrors the same pose, never the video.
       bridge.current?.publishFrame(frame);
+      if (calibrationRef.current) {
+        handleCalibration(frame);
+        return;
+      }
       const state = current.current;
       if (state.stage !== "running") return;
       const nextFeedback = engine.current.update(
@@ -286,6 +471,34 @@ function Presenter() {
         frame.time,
         state.locked,
       );
+      if (debugGesturesRef.current) {
+        if (frame.time - debugPaint.current > 220) {
+          debugPaint.current = frame.time;
+          setGestureDebug({
+            ...engine.current.debug,
+            kind: nextFeedback.kind,
+            code: nextFeedback.code ?? "",
+          });
+        }
+        if (
+          (nextFeedback.kind === "success" || nextFeedback.kind === "error") &&
+          (nextFeedback.message !== debugLastMessage.current ||
+            frame.time - debugLogAt.current > 1500)
+        ) {
+          debugLogAt.current = frame.time;
+          debugLastMessage.current = nextFeedback.message;
+          setDebugLog((previous) =>
+            [
+              {
+                message: nextFeedback.message,
+                code: nextFeedback.code ?? nextFeedback.gesture ?? "",
+                kind: nextFeedback.kind,
+              },
+              ...previous,
+            ].slice(0, 5),
+          );
+        }
+      }
       if (nextFeedback.kind === "success" && nextFeedback.gesture) {
         const gesture = nextFeedback.gesture;
         if (gesture === "toggle") {
@@ -317,6 +530,7 @@ function Presenter() {
       if (
         nextFeedback.kind === "error" &&
         nextFeedback.code &&
+        !state.locked &&
         state.stage === "running" &&
         session.current &&
         frame.time - (correctionLast.current[nextFeedback.code] ?? -5000) > 3500
@@ -338,7 +552,7 @@ function Presenter() {
             : nextFeedback,
         );
     },
-    [goTo, applyLock],
+    [goTo, applyLock, handleCalibration],
   );
   const {
     status: cameraStatus,
@@ -350,7 +564,13 @@ function Presenter() {
   } = useCamera(onFrame);
 
   useEffect(() => {
+    try {
+      localStorage.setItem("axiompitch-sensitivity", String(sensitivity));
+    } catch {
+      // Private mode: keep the value for this tab only.
+    }
     engine.current.setSensitivity(sensitivity);
+    calibrationEngine.current.setSensitivity(sensitivity);
   }, [sensitivity]);
   useEffect(() => {
     if (stage !== "running") return;
@@ -366,7 +586,8 @@ function Presenter() {
         (event.target instanceof HTMLElement &&
           /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) ||
         dialogRef.current?.open ||
-        historyDialogRef.current?.open
+        historyDialogRef.current?.open ||
+        calibrationDialogRef.current?.open
       )
         return;
       if (event.key === "ArrowRight") {
@@ -498,6 +719,12 @@ function Presenter() {
     else historyDialogRef.current?.close();
   }, [historyOpen]);
   useEffect(() => {
+    const dialog = calibrationDialogRef.current;
+    if (!dialog) return;
+    if (calibration && !dialog.open) dialog.showModal();
+    if (!calibration && dialog.open) dialog.close();
+  }, [calibration]);
+  useEffect(() => {
     if (!notice) return;
     const timer = setTimeout(() => setNotice(""), 7000);
     return () => clearTimeout(timer);
@@ -532,10 +759,11 @@ function Presenter() {
           .catch((error) => console.warn("PitchFlow server:", error));
       }
     } catch (error) {
+      const message = error instanceof Error ? error.message : "";
       setNotice(
-        error instanceof Error
-          ? error.message
-          : "Не удалось прочитать PDF. Попробуй другой файл.",
+        /[а-яё]/i.test(message)
+          ? message
+          : "Не удалось прочитать PDF. Проверь файл и попробуй ещё раз.",
       );
     } finally {
       setPdfProgress(null);
@@ -679,36 +907,67 @@ function Presenter() {
   const totalCommands = result
     ? Object.values(result.commands).reduce((a, b) => a + b, 0)
     : 0;
+  const statusText = describeTarget(slideTarget, estimated);
+  // The companion reflects the live gesture state instead of standing still.
+  const coachAction: CompanionAction =
+    stage === "finished"
+      ? "success"
+      : pulse
+        ? pulse.gesture === "toggle"
+          ? "hold"
+          : pulse.gesture
+        : feedback.code === "palm"
+          ? "open-palm"
+          : feedback.code
+            ? "point"
+            : feedback.kind === "progress"
+              ? "hold"
+              : cameraStatus === "ready"
+                ? "hello"
+                : "idle";
+  const coachMessage =
+    stage === "running"
+      ? locked
+        ? "Слайды на паузе — удержи ладонь, чтобы вернуть управление."
+        : "Слушаю жест: ладонь вправо — дальше, влево — назад."
+      : stage === "paused"
+        ? "Пауза. Продолжим, когда будешь готов."
+        : stage === "finished"
+          ? "Готово. Открой итоги — там время и команды."
+          : cameraStatus === "ready"
+            ? "Камера видит тебя. Начни репетицию — я подскажу жест."
+            : "Включи камеру — и я стану твоим пультом.";
+  const coachProgress =
+    stage === "running" && feedback.progress !== undefined
+      ? feedback.progress
+      : null;
 
   return (
-    <main className={`workspace studio studio-${stage}`}>
-      <header className="app-header">
-        <div className="studio-brand-group"><a href="/" aria-label="AxiomPitch — на главную"><PitchBrand /></a><span className="studio-header-divider" /><span className="studio-breadcrumb">Студия</span></div>
-        <div className={`studio-status ${stage}`}><span />{stage === "running" ? "Ты в эфире" : stage === "paused" ? "На паузе" : "Твоё пространство"}</div>
-        <div className="header-actions">
-          <button
-            className="icon-button"
-            title="История выступлений"
-            aria-label="История выступлений"
-            onClick={() => setHistoryOpen(true)}
-          >
-            <History size={19} />
-          </button>
-          <button
-            className={`button secondary ${audienceOpen || overlayVisible ? "selected" : ""}`}
-            onClick={openAudience}
-            aria-label={external ? overlayVisible ? "Скрыть чёлку" : "Показать чёлку" : audienceOpen ? "Экран открыт" : "Экран аудитории"}
-          >
-            <Monitor size={17} />
-            <span>{external ? overlayVisible ? "Скрыть чёлку" : "Показать чёлку" : audienceOpen ? "Экран открыт" : "Экран аудитории"}</span>
-          </button>
-        </div>
-      </header>
+    <main className={`studio studio-${stage}`}>
+      <StudioSidebar
+        active={view}
+        onNavigate={setView}
+        onHistory={() => setHistoryOpen(true)}
+      />
+      <div className="studio-main">
+        <header className="app-header">
+          <div className={`studio-status ${stage}`}>{stage === "running" ? "Ты в эфире" : stage === "paused" ? "На паузе" : "Твоё пространство"}</div>
+          <div className="header-actions">
+            <button
+              className={`button secondary ${audienceOpen || overlayVisible ? "selected" : ""}`}
+              onClick={openAudience}
+              aria-label={external ? overlayVisible ? "Скрыть чёлку" : "Показать чёлку" : audienceOpen ? "Экран открыт" : "Экран аудитории"}
+            >
+              <Monitor size={17} />
+              <span>{external ? overlayVisible ? "Скрыть чёлку" : "Показать чёлку" : audienceOpen ? "Экран открыт" : "Экран аудитории"}</span>
+            </button>
+          </div>
+        </header>
+        <div className="studio-deck" hidden={view !== "deck"}>
       <div className="workspace-heading">
         <div className="studio-title">
-          <span className="section-eyebrow">ТВОЯ ПРЕЗЕНТАЦИЯ</span>
           <h1>{external ? slideTarget?.label || "Внешний показ" : deckName}</h1>
-          <p>{external ? `${shownCount ?? "?"} слайдов · Внешнее приложение` : `${slides.length} слайдов · ${slides[0]?.image ? "Твой PDF" : "Демо-презентация"}`}</p>
+          <p>{external ? `${shownCount ?? "?"} ${slidesWord(shownCount)} · Внешнее приложение` : `${slides.length} ${slidesWord(slides.length)} · ${slides[0]?.image ? "Твой PDF" : "Демо-презентация"}`}</p>
         </div>
         <div className="deck-actions">
           <input
@@ -745,238 +1004,7 @@ function Presenter() {
         </div>
       )}
       <div className={`workspace-grid ${external && !pdfMatches ? "external-without-preview" : ""}`}>
-        <nav className="studio-filmstrip" aria-label="Все слайды презентации" hidden={external && !pdfMatches}>
-          <span className="studio-rail-label">СЛАЙДЫ <span>{String(slides.length).padStart(2, "0")}</span></span>
-          <div className="studio-thumbnails">{slides.map((slide, i) => <button key={slide.id} className={`studio-thumbnail ${i === shownIndex ? "active" : ""}`} disabled={external} onClick={() => goTo(i)} aria-label={`Перейти к слайду ${i + 1}: ${slide.title.replace(/\n/g, " ")}`} aria-current={i === shownIndex ? "step" : undefined}><SlideView slide={slide} small /><span className="studio-thumbnail-caption"><span>{String(i + 1).padStart(2, "0")}</span>{i === shownIndex && <span className="studio-thumbnail-current" />}</span></button>)}</div>
-        </nav>
-        <section className="stage-panel" aria-label="Презентация">
-          <div className="stage-label">
-            <span className="studio-stage-caption"><span />НА СЦЕНЕ</span>
-            <span className="slide-counter" title={external && estimated ? "Оценочный номер: приложение не сообщает позицию" : undefined}>
-              {external && estimated ? "≈ " : ""}
-              {String(shownIndex + 1).padStart(2, "0")}{" "}
-              <span>/ {shownCount === null || shownCount === undefined ? "?" : String(shownCount).padStart(2, "0")}</span>
-            </span>
-          </div>
-          {previewAvailable ? <motion.div
-            key={slides[index].id}
-            initial={reducedMotion ? false : { opacity: 0.5, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <SlideView slide={slides[index]} />
-          </motion.div> : <div className="external-show-placeholder">
-            <Presentation size={32} />
-            <strong>{slideTarget?.label || "Внешний показ"} · {estimated ? "≈ " : ""}слайд {externalIndex + 1}</strong>
-            <p>{pdfMatches ? "Для этого слайда нет страницы в загруженном PDF." : "Презентация открыта во внешнем приложении. Загрузи соответствующий PDF, если нужны превью и заметки."}</p>
-          </div>}
-          <div className="slide-transport">
-            <div className="transport-buttons">
-              <button
-                className="icon-button"
-                aria-label="Предыдущий слайд"
-                disabled={!external && index === 0}
-                onClick={() => step("previous")}
-              >
-                <ArrowLeft size={20} />
-              </button>
-              <div className="slide-dots" aria-label="Слайды" hidden={!previewAvailable}>
-                {slides
-                  .slice(
-                    Math.max(0, index - 3),
-                    Math.min(slides.length, index + 4),
-                  )
-                  .map((slide, local) => {
-                    const i = Math.max(0, index - 3) + local;
-                    return (
-                      <button
-                        key={slide.id}
-                        className={`slide-dot ${i === index ? "active" : ""}`}
-                        aria-label={`Слайд ${i + 1}`}
-                        aria-current={i === index ? "step" : undefined}
-                        disabled={external} onClick={() => goTo(i)}
-                      />
-                    );
-                  })}
-              </div>
-              <button
-                className="icon-button"
-                aria-label="Следующий слайд"
-                disabled={!external && index === slides.length - 1}
-                onClick={() => step("next")}
-              >
-                <ArrowRight size={20} />
-              </button>
-            </div>
-            <span className="keyboard-tip">← → для ручного управления</span>
-          </div>
-          {previewAvailable && <div className="below-slide">
-            <div className="notes-panel">
-              <label htmlFor="speaker-notes">
-                <SlidersHorizontal size={16} />
-                Твоя главная мысль
-              </label>
-              <textarea
-                id="speaker-notes"
-                value={slides[index].notes}
-                onChange={(event) => updateNote(event.target.value)}
-                placeholder="Твоя главная мысль на этом слайде…"
-                rows={3}
-              />
-            </div>
-            <div className="next-slide-panel">
-              <span className="panel-caption">ДАЛЕЕ</span>
-              {slides[index + 1] ? (
-                <button
-                  className="next-preview"
-                  onClick={() => step("next")}
-                >
-                  <SlideView slide={slides[index + 1]} small />
-                  <span>
-                    {slides[index + 1].title.replace(/\n/g, " ")}
-                    <ChevronRight size={15} />
-                  </span>
-                </button>
-              ) : (
-                <div className="last-slide">
-                  <Check size={22} />
-                  <span>Финальный слайд</span>
-                </div>
-              )}
-            </div>
-          </div>}
-        </section>
-        <aside className="control-panel">
-          {apiEnabled && (
-            <section className="target-panel bridge-integration">
-              <div className="panel-heading">
-                <Presentation size={17} />
-                <span>Где листать слайды</span>
-                <span
-                  className={`bridge-state ${bridgeOnline ? "online" : ""}`}
-                >
-                  {bridgeOnline ? "МОСТ" : "НЕТ МОСТА"}
-                </span>
-              </div>
-              {bridgeOnline ? (
-                <>
-                  <div className="target-row">
-                    <select
-                      aria-label="Приложение со слайдами"
-                      value={chosenTarget}
-                      disabled={isSession}
-                      onFocus={refreshTargets}
-                      onChange={(event) =>
-                        setChosenTarget(event.target.value as TargetId)
-                      }
-                    >
-                      {(targetList.length
-                        ? targetList
-                        : [{ id: "pitchflow" as const, available: true }]
-                      ).map((item) => (
-                        <option key={item.id} value={item.id}>
-                          {targetNames[item.id]}
-                          {item.available ? "" : " · не запущено"}
-                        </option>
-                      ))}
-                    </select>
-                    {chosenTarget === "frontmost" && (
-                      <select
-                        aria-label="Приложение для стрелок"
-                        value={chosenApp}
-                        disabled={isSession}
-                        onFocus={refreshTargets}
-                        onChange={(event) => setChosenApp(event.target.value)}
-                      >
-                        <option value="">Выбери приложение</option>
-                        {runningApps.map((app) => (
-                          <option key={app.bundleId} value={app.bundleId}>
-                            {app.name}
-                          </option>
-                        ))}
-                      </select>
-                    )}
-                    <button
-                      className="button secondary"
-                      disabled={isSession || (chosenTarget === "frontmost" && !chosenApp)}
-                      onClick={() => {
-                        bridge.current
-                          ?.connectTarget(
-                            chosenTarget,
-                            chosenTarget === "frontmost"
-                              ? chosenApp
-                              : undefined,
-                          )
-                          .then(status => {
-                            externalPosition.current = status.slideIndex ?? 0;
-                            setExternalIndex(externalPosition.current);
-                            setEstimated(status.slideIndex === null);
-                            setPdfMatches(false);
-                            applyTarget(status);
-                            refreshTargets();
-                          })
-                          .catch((error: Error) => setNotice(error.message));
-                      }}
-                    >
-                      <Plug size={16} />
-                      Подключить
-                    </button>
-                  </div>
-                  <p
-                    className={`target-status ${slideTarget?.error ? "error" : ""}`}
-                  >
-                    {slideTarget?.error ??
-                      describeTarget(slideTarget, estimated)}
-                  </p>
-                  {external && <>
-                    {(slideTarget?.app === "chrome" || slideTarget?.app === "frontmost") && <p className="target-status">Для управления жестами окно презентации должно быть активным. Номер оценочный: смены с клавиатуры приложения не отслеживаются.</p>}
-                    <button className="text-button" disabled={isSession} onClick={() => {
-                      bridge.current?.disconnectTarget().then(status => { applyTarget(status); refreshTargets(); }).catch((error: Error) => setNotice(error.message));
-                    }}>Вернуться к колоде PitchFlow</button>
-                    <label className="bridge-setting"><input type="checkbox" checked={pdfMatches} disabled={isSession || !slides[0]?.image} onChange={event => setPdfMatches(event.target.checked)} />Загруженный PDF соответствует внешней презентации</label>
-                    {estimated && <label className="bridge-setting">Начальный номер слайда <input aria-label="Начальный номер внешнего слайда" type="number" min={1} max={2000} disabled={isSession} value={externalIndex + 1} onChange={event => {
-                      const value = Math.max(0, Math.min(1999, Number(event.target.value) - 1));
-                      externalPosition.current = value; setExternalIndex(value);
-                    }} /></label>}
-                    {isSession && <p className="target-status">Для смены приложения сначала заверши выступление.</p>}
-                  </>}
-                </>
-              ) : (
-                <p className="target-status">
-                  Запусти npm run server, чтобы листать Keynote, PowerPoint или
-                  Google Slides. Колода PitchFlow работает и без него.
-                </p>
-              )}
-            </section>
-          )}
-
-          <section className="camera-panel">
-            <div className="panel-heading"><span className="studio-assistant-dot" /><span>Твой кадр</span><small>{cameraStatus === "ready" ? `${cameraFps} FPS` : "КАМЕРА"}</small></div>
-            <div className={`studio-camera-preview ${cameraStatus === "ready" ? "is-live" : ""}`}>
-              <video ref={videoRef} playsInline muted aria-hidden={cameraStatus !== "ready"} aria-label="Зеркальное превью камеры" />
-              {cameraStatus !== "ready" && <div className="studio-camera-placeholder"><Camera size={24} strokeWidth={1} /><span>{cameraStatus === "loading" ? "Подключаем камеру…" : "Место для тебя"}</span></div>}
-              <span className="studio-camera-corners" aria-hidden="true" />
-              {cameraStatus === "ready" && <span className="studio-camera-live"><i />{locked ? "Жесты на паузе" : stage === "running" ? "Управление активно" : "Камера готова"}</span>}
-            </div>
-            <button className="button secondary full" onClick={() => {
-              if (cameraStatus === "ready" || cameraStatus === "loading") cameraStop();
-              else { resetGestures(); void cameraStart(); }
-            }}>{cameraStatus === "loading" ? <LoaderCircle className="spin" size={14} /> : cameraStatus === "ready" ? <CameraOff size={14} /> : <Camera size={14} />}{cameraStatus === "loading" ? "Отменить" : cameraStatus === "ready" ? "Выключить камеру" : "Включить камеру"}</button>
-            {cameraError && <p className="camera-error" role="alert">{cameraError}</p>}
-            <p className="studio-native-status"><i className={bridgeOnline ? "connected" : ""} />{bridgeOnline ? overlayVisible ? "Показ чёлки включён" : "Мост подключён" : apiEnabled ? "Мост не подключён" : "Локальная студия"}</p>
-            {stage === "running" && cameraStatus === "ready" && <p className={`studio-live-feedback ${feedback.kind}`} role="status">{feedback.message}</p>}
-            <details className="studio-gesture-details"><summary>Настройки <SlidersHorizontal size={13} /></summary>
-              <label className="bridge-setting"><input type="checkbox" checked={notchEnabled} onChange={event => setNotchEnabled(event.target.checked)} />Использовать чёлку macOS</label>
-              {notchEnabled && <><label className="bridge-setting">Экран чёлки <select aria-label="Экран чёлки" value={notchDisplay ?? "auto"} onChange={event => setNotchDisplay(event.target.value === "auto" ? null : Number(event.target.value))}>
-                <option value="auto">MacBook / основной экран</option>
-                {displays.map(display => <option key={display.id} value={display.id}>{display.label}{display.primary ? " · основной" : ""}</option>)}
-              </select></label><p className="target-status">{shellConnected ? "Чёлка появится при начале выступления. Крестик скрывает её до следующего." : "Окно чёлки не запущено. Можно работать без него."}</p></>}
-              <label className="sensitivity" htmlFor="sensitivity"><span>Размах жеста <span>{sensitivity < .8 ? "малый" : sensitivity > 1 ? "большой" : "обычный"}</span></span><input id="sensitivity" type="range" min={.55} max={1.15} step={.05} value={sensitivity} onChange={event => setSensitivity(Number(event.target.value))} /></label>
-              <button className="text-button" onClick={() => { applyLock(!locked); engine.current.reset(); }}>{locked ? <UnlockKeyhole size={13} /> : <LockKeyhole size={13} />}{locked ? "Включить жесты" : "Заблокировать жесты"}</button>
-              <div className="gesture-guide"><div><ArrowRight size={13} /><span>Ладонь вправо</span><span>Далее</span></div><div><ArrowLeft size={13} /><span>Ладонь влево</span><span>Назад</span></div><div><Hand size={13} /><span>Удержать 1,5 сек.</span><span>Блок</span></div></div>
-              <a className="studio-learn-link" href="/learn" onClick={event => { if (isSession) { event.preventDefault(); setNotice("Сначала заверши выступление, чтобы перейти к обучению."); } }}>Пройти обучение <ChevronRight size={12} /></a>
-            </details>
-          </section>
+        <div className="stage-left">
           <section className="timer-panel">
             <div className="panel-heading">
               <Clock3 size={17} />
@@ -1068,7 +1096,247 @@ function Presenter() {
               </button>
             )}
           </section>
-          <div className="studio-coach"><PixelCompanion action={stage === "finished" ? "success" : pulse ? pulse.gesture === "toggle" ? "hold" : pulse.gesture : "idle"} replay={pulse?.id ?? 0} /><p>{stage === "running" ? locked ? "Говори свободно. Слайды подождут." : "Рассказывай. Я помогу с движением." : stage === "paused" ? "Выдохни. Продолжим, когда будешь готов." : stage === "finished" ? "Твоя история рассказана." : "Твоя история — в центре. Начнём, когда будешь готов."}</p></div>
+        </div>
+        <div className="stage-column">
+        <section className="stage-panel" aria-label="Презентация">
+          <div className="stage-label">
+            <span className="slide-counter" title={external && estimated ? "Оценочный номер: приложение не сообщает позицию" : undefined}>
+              {external && estimated ? "≈ " : ""}
+              {String(shownIndex + 1).padStart(2, "0")}{" "}
+              <span>/ {shownCount === null || shownCount === undefined ? "?" : String(shownCount).padStart(2, "0")}</span>
+            </span>
+          </div>
+          {previewAvailable ? <motion.div
+            key={slides[index].id}
+            initial={reducedMotion ? false : { opacity: 0.5, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <SlideView slide={slides[index]} />
+          </motion.div> : <div className="external-show-placeholder">
+            <Presentation size={32} />
+            <strong>{slideTarget?.label || "Внешний показ"} · {estimated ? "≈ " : ""}слайд {externalIndex + 1}</strong>
+            <p>{pdfMatches ? "Для этого слайда нет страницы в загруженном PDF." : "Презентация открыта во внешнем приложении. Загрузи соответствующий PDF, если нужны превью и заметки."}</p>
+          </div>}
+          <div className="slide-transport">
+            <div className="transport-buttons">
+              <button
+                className="icon-button"
+                aria-label="Предыдущий слайд"
+                disabled={!external && index === 0}
+                onClick={() => step("previous")}
+              >
+                <ArrowLeft size={20} />
+              </button>
+              <div className="slide-dots" aria-label="Слайды" hidden={!previewAvailable}>
+                {slides
+                  .slice(
+                    Math.max(0, index - 3),
+                    Math.min(slides.length, index + 4),
+                  )
+                  .map((slide, local) => {
+                    const i = Math.max(0, index - 3) + local;
+                    return (
+                      <button
+                        key={slide.id}
+                        className={`slide-dot ${i === index ? "active" : ""}`}
+                        aria-label={`Слайд ${i + 1}`}
+                        aria-current={i === index ? "step" : undefined}
+                        disabled={external} onClick={() => goTo(i)}
+                      />
+                    );
+                  })}
+              </div>
+              <button
+                className="icon-button"
+                aria-label="Следующий слайд"
+                disabled={!external && index === slides.length - 1}
+                onClick={() => step("next")}
+              >
+                <ArrowRight size={20} />
+              </button>
+            </div>
+            <span className="keyboard-tip">← → на клавиатуре</span>
+          </div>
+          {previewAvailable && <div className="below-slide">
+            <div className="notes-panel">
+              <label htmlFor="speaker-notes">
+                <SlidersHorizontal size={16} />
+                Твоя главная мысль
+              </label>
+              <textarea
+                id="speaker-notes"
+                value={slides[index].notes}
+                onChange={(event) => updateNote(event.target.value)}
+                placeholder="Твоя главная мысль на этом слайде…"
+                rows={3}
+              />
+            </div>
+            <div className="next-slide-panel">
+              <span className="panel-caption">Далее</span>
+              {slides[index + 1] ? (
+                <button
+                  className="next-preview"
+                  onClick={() => step("next")}
+                >
+                  <SlideView slide={slides[index + 1]} small />
+                  <span>
+                    {slides[index + 1].title.replace(/\n/g, " ")}
+                    <ChevronRight size={15} />
+                  </span>
+                </button>
+              ) : (
+                <div className="last-slide">
+                  <Check size={22} />
+                  <span>Финальный слайд</span>
+                </div>
+              )}
+            </div>
+          </div>}
+        </section>
+        <nav className="studio-filmstrip" aria-label="Все слайды презентации" hidden={external && !pdfMatches}>
+          <div className="studio-thumbnails">{slides.map((slide, i) => <button key={slide.id} className={`studio-thumbnail ${i === shownIndex ? "active" : ""}`} disabled={external} onClick={() => goTo(i)} aria-label={`Перейти к слайду ${i + 1}: ${slide.title.replace(/\n/g, " ")}`} aria-current={i === shownIndex ? "step" : undefined}><SlideView slide={slide} small /><span className="studio-thumbnail-caption"><span>{String(i + 1).padStart(2, "0")}</span>{i === shownIndex && <span className="studio-thumbnail-current" />}</span></button>)}</div>
+        </nav>
+        </div>
+        <aside className="control-panel">
+          <div className="studio-coach">
+            <PixelCompanion action={coachAction} replay={pulse?.id ?? 0} />
+            <div className="coach-copy">
+              <p>{coachMessage}</p>
+              {coachProgress !== null && <span className="coach-progress"><i style={{ width: `${Math.round(coachProgress * 100)}%` }} /></span>}
+            </div>
+          </div>
+          {apiEnabled && (
+            <section className="target-panel bridge-integration">
+              <div className="panel-heading">
+                <Presentation size={17} />
+                <span>Где листать слайды</span>
+              </div>
+              {bridgeOnline ? (
+                <>
+                  <div className="target-row">
+                    <select
+                      aria-label="Приложение со слайдами"
+                      value={chosenTarget}
+                      disabled={isSession}
+                      onFocus={refreshTargets}
+                      onChange={(event) =>
+                        setChosenTarget(event.target.value as TargetId)
+                      }
+                    >
+                      {(targetList.length
+                        ? targetList
+                        : [{ id: "pitchflow" as const, available: true }]
+                      ).map((item) => (
+                        <option key={item.id} value={item.id}>
+                          {targetNames[item.id]}
+                          {item.available ? "" : " · не запущено"}
+                        </option>
+                      ))}
+                    </select>
+                    {chosenTarget === "frontmost" && (
+                      <label className="target-app">
+                        <span>ПРИЛОЖЕНИЕ</span>
+                        <select
+                          aria-label="Приложение для стрелок"
+                          value={chosenApp}
+                          disabled={isSession}
+                          onFocus={refreshTargets}
+                          onChange={(event) => setChosenApp(event.target.value)}
+                        >
+                          <option value="">Выбери приложение</option>
+                          {runningApps.map((app) => (
+                            <option key={app.bundleId} value={app.bundleId}>
+                              {app.name}
+                            </option>
+                          ))}
+                        </select>
+                      </label>
+                    )}
+                    <button
+                      className="button secondary full"
+                      disabled={isSession || (chosenTarget === "frontmost" && !chosenApp)}
+                      onClick={() => {
+                        bridge.current
+                          ?.connectTarget(
+                            chosenTarget,
+                            chosenTarget === "frontmost"
+                              ? chosenApp
+                              : undefined,
+                          )
+                          .then(status => {
+                            externalPosition.current = status.slideIndex ?? 0;
+                            setExternalIndex(externalPosition.current);
+                            setEstimated(status.slideIndex === null);
+                            setPdfMatches(false);
+                            applyTarget(status);
+                            refreshTargets();
+                          })
+                          .catch((error: Error) => setNotice(error.message));
+                      }}
+                    >
+                      <Plug size={16} />
+                      Подключить
+                    </button>
+                  </div>
+                  {(slideTarget?.error || statusText) && (
+                    <p
+                      className={`target-status ${slideTarget?.error ? "error" : ""}`}
+                      title={
+                        external &&
+                        (slideTarget?.app === "chrome" ||
+                          slideTarget?.app === "frontmost")
+                          ? "Окно презентации должно быть впереди, иначе стрелки не уйдут"
+                          : undefined
+                      }
+                    >
+                      {slideTarget?.error ?? statusText}
+                    </p>
+                  )}
+                  {external && <>
+                    <button className="text-button" disabled={isSession} onClick={() => {
+                      bridge.current?.disconnectTarget().then(status => { applyTarget(status); refreshTargets(); }).catch((error: Error) => setNotice(error.message));
+                    }}>Вернуться к колоде PitchFlow</button>
+                    <label className="bridge-setting"><input type="checkbox" checked={pdfMatches} disabled={isSession || !slides[0]?.image} onChange={event => setPdfMatches(event.target.checked)} />PDF соответствует показу</label>
+                    {estimated && <label className="bridge-setting">Начальный номер слайда <input aria-label="Начальный номер внешнего слайда" type="number" min={1} max={2000} disabled={isSession} value={externalIndex + 1} onChange={event => {
+                      const value = Math.max(0, Math.min(1999, Number(event.target.value) - 1));
+                      externalPosition.current = value; setExternalIndex(value);
+                    }} /></label>}
+                    {isSession && <p className="target-status">Для смены приложения сначала заверши выступление.</p>}
+                  </>}
+                </>
+              ) : (
+                <p className="target-status">
+                  Мост не запущен — запусти npm run server
+                </p>
+              )}
+            </section>
+          )}
+
+          <section className="camera-panel">
+            <div className="panel-heading"><Camera size={15} strokeWidth={1.6} /><span>Камера</span><small>{cameraStatus === "ready" ? `${cameraFps} FPS` : cameraStatus === "loading" ? "подключение" : "выключена"}</small></div>
+            <div className={`studio-camera-preview ${cameraStatus === "ready" ? "is-live" : ""}`}>
+              <video ref={videoRef} playsInline muted aria-hidden={cameraStatus !== "ready"} aria-label="Зеркальное превью камеры" />
+              {cameraStatus !== "ready" && <div className="studio-camera-placeholder"><Camera size={22} strokeWidth={1.2} /><span>{cameraStatus === "loading" ? "Подключаем камеру…" : "Включи камеру, чтобы управлять жестами"}</span></div>}
+              {cameraStatus === "ready" && <span className="studio-camera-live">{locked ? "Жесты на паузе" : stage === "running" ? "Управление активно" : "Камера готова"}</span>}
+            </div>
+            <button className="button secondary full" onClick={() => {
+              if (cameraStatus === "ready" || cameraStatus === "loading") cameraStop();
+              else { resetGestures(); void cameraStart(); }
+            }}>{cameraStatus === "loading" ? <LoaderCircle className="spin" size={15} /> : cameraStatus === "ready" ? <CameraOff size={15} /> : <Camera size={15} />}{cameraStatus === "loading" ? "Отменить" : cameraStatus === "ready" ? "Выключить камеру" : "Включить камеру"}</button>
+            {cameraError && <p className="camera-error" role="alert">{cameraError}</p>}
+            {stage === "running" && cameraStatus === "ready" && <p className={`studio-live-feedback ${feedback.kind}`} role="status">{feedback.message}</p>}
+            {debugGestures && (
+              <div className="studio-debug">
+                {gestureDebug ? (<>
+                  <span>Руки: {gestureDebug.hands} · открытых: {gestureDebug.open} · ладонь: {(gestureDebug.scale * 100).toFixed(1)}%</span>
+                  <span>dx: {gestureDebug.dx >= 0 ? "+" : ""}{gestureDebug.dx.toFixed(2)} · dy: {gestureDebug.dy >= 0 ? "+" : ""}{gestureDebug.dy.toFixed(2)} · t: {(gestureDebug.elapsed / 1000).toFixed(1)} с · порог: {gestureDebug.threshold.toFixed(2)}</span>
+                  <span>Движок: {gestureDebug.locked ? "заблокирован" : "активен"} · ответ: {gestureDebug.kind}{gestureDebug.code ? ` · ${gestureDebug.code}` : ""}</span>
+                  <div className="studio-debug-log">{debugLog.length ? debugLog.map((entry, i) => <span key={`${entry.code}-${i}`}>{entry.message}</span>) : <span>Журнал пока пуст</span>}</div>
+                </>) : <span>Отладка включена. Начни репетицию и покажи ладонь — здесь появятся цифры.</span>}
+              </div>
+            )}
+          </section>
         </aside>
       </div>
       <footer className="workspace-footer">
@@ -1082,6 +1350,42 @@ function Presenter() {
             : "Можно начать с демо-слайдов или своего PDF"}
         </span>
       </footer>
+        </div>
+        <section className="settings-page" hidden={view !== "settings"} aria-labelledby="settings-title">
+          <h1 id="settings-title">Настройки</h1>
+          <p className="settings-page-note">Камера, жесты, чёлка и аккаунт. Всё остаётся на этом устройстве.</p>
+          <div className="settings-grid">
+            <section className="settings-group settings-panel">
+              <span className="settings-label">Камера и жесты</span>
+              <label className="sensitivity" htmlFor="sensitivity"><span>Размах жеста <span>{sensitivity < .8 ? "малый" : sensitivity > 1 ? "большой" : "обычный"}</span></span><input id="sensitivity" type="range" min={.55} max={1.15} step={.05} value={sensitivity} onChange={event => setSensitivity(Number(event.target.value))} /></label>
+              <button className="text-button" onClick={startCalibration}><SlidersHorizontal size={15} />Калибровка жестов</button>
+              <button className="text-button" onClick={() => { applyLock(!locked); engine.current.reset(); }}>{locked ? <UnlockKeyhole size={15} /> : <LockKeyhole size={15} />}{locked ? "Включить жесты" : "Заблокировать жесты"}</button>
+              <label className="bridge-setting"><input type="checkbox" checked={debugGestures} onChange={event => setDebugGestures(event.target.checked)} />Показывать отладку жестов</label>
+            </section>
+            <section className="settings-group settings-panel">
+              <span className="settings-label">Чёлка и экран</span>
+              <label className="bridge-setting"><input type="checkbox" checked={notchEnabled} onChange={event => setNotchEnabled(event.target.checked)} />Использовать чёлку macOS</label>
+              {notchEnabled && <>
+                <label className="bridge-setting bridge-setting-column">Экран чёлки <select aria-label="Экран чёлки" value={notchDisplay ?? "auto"} onChange={event => setNotchDisplay(event.target.value === "auto" ? null : Number(event.target.value))}>
+                  <option value="auto">MacBook / основной экран</option>
+                  {displays.map(display => <option key={display.id} value={display.id}>{display.label}{display.primary ? " · основной" : ""}</option>)}
+                </select></label>
+                <p className="settings-note">{shellConnected ? "Чёлка появится при начале выступления. Крестик скрывает её до следующего." : "Окно чёлки не запущено — студия работает и без него."}</p>
+              </>}
+            </section>
+            <section className="settings-group settings-panel">
+              <span className="settings-label">Памятка</span>
+              <div className="gesture-guide"><div><ArrowRight size={14} /><span>Ладонь вправо</span><span>Далее</span></div><div><ArrowLeft size={14} /><span>Ладонь влево</span><span>Назад</span></div><div><Hand size={14} /><span>Удержать 1,5 сек.</span><span>Блокировка</span></div></div>
+              <a className="studio-learn-link" href="/learn" onClick={event => { if (isSession) { event.preventDefault(); setNotice("Сначала заверши выступление, чтобы перейти к обучению."); } }}>Пройти обучение <ChevronRight size={16} /></a>
+            </section>
+            <section className="settings-group settings-panel">
+              <span className="settings-label">Аккаунт</span>
+              <p className="settings-account"><strong>{account?.name || "Гость"}</strong><small>{account?.email || "Локальный аккаунт не создан"}</small></p>
+              <button className="text-button" onClick={logout}><LogOut size={15} />Выйти из аккаунта</button>
+            </section>
+          </div>
+        </section>
+      </div>
       <dialog
         ref={dialogRef}
         className="results-dialog"
@@ -1231,6 +1535,83 @@ function Presenter() {
           ))
         )}
       </dialog>
+      <dialog
+        ref={calibrationDialogRef}
+        className="results-dialog calibration-dialog"
+        aria-labelledby="calibration-title"
+        onCancel={() => closeCalibration()}
+        onClose={() => closeCalibration()}
+      >
+        {calibration && (
+          <>
+            <div className="dialog-header">
+              <div>
+                <span className="section-eyebrow">КАЛИБРОВКА ЖЕСТОВ</span>
+                <h2 id="calibration-title">
+                  {calibration.step === 4 ? "Готово." : "Настроим под тебя."}
+                </h2>
+              </div>
+              <button
+                className="icon-button"
+                aria-label="Закрыть калибровку"
+                onClick={closeCalibration}
+              >
+                <X size={20} />
+              </button>
+            </div>
+            {cameraStatus !== "ready" ? (
+              <>
+                <p className="calibration-lead">Сначала включи камеру.</p>
+                <p className="calibration-note">
+                  Жесты проверяются сразу, искать и сохранять ничего не нужно.
+                </p>
+                <div className="calibration-actions">
+                  <button className="text-button" onClick={closeCalibration}>Позже</button>
+                  <button className="button primary" onClick={() => { resetGestures(); void cameraStart(); }}>Включить камеру</button>
+                </div>
+              </>
+            ) : calibration.step === 4 ? (
+              <>
+                <p className="calibration-lead">
+                  Жесты ловятся. Размах: {sensitivity < .8 ? "малый" : sensitivity > 1 ? "большой" : "обычный"}.
+                </p>
+                <p className="calibration-note">
+                  Значение сохранилось. Повторить калибровку можно в любой момент:
+                  «Настройки» → «Камера и жесты».
+                </p>
+                <div className="calibration-actions">
+                  <span className="calibration-hint">Готово к репетиции</span>
+                  <button className="button primary" onClick={closeCalibration}>Продолжить</button>
+                </div>
+              </>
+            ) : (
+              <>
+                <div className="calibration-steps">
+                  {calibrationSteps.map((label, i) => (
+                    <span
+                      key={label}
+                      className={i < calibration.step ? "done" : i === calibration.step ? "active" : ""}
+                    >
+                      {label}
+                    </span>
+                  ))}
+                </div>
+                <p className="calibration-lead">{calibrationMessages[calibration.step]}</p>
+                <div className="calibration-track">
+                  <span style={{ width: `${Math.round(calibration.progress * 100)}%` }} />
+                </div>
+                <p className={`calibration-feedback ${calibration.kind}`} role="status">
+                  {calibration.feedback}
+                </p>
+                <div className="calibration-actions">
+                  <button className="text-button" onClick={closeCalibration}>Отмена</button>
+                  <span className="calibration-hint">Шаг {calibration.step + 1} из 4</span>
+                </div>
+              </>
+            )}
+          </>
+        )}
+      </dialog>
     </main>
   );
 }
@@ -1247,8 +1628,28 @@ export default function App() {
     window.addEventListener("popstate", syncPath);
     return () => { window.removeEventListener("popstate", syncPath); pendingTimers.forEach(clearTimeout); };
   }, []);
+  // Registration -> learning -> studio. The local account drives the funnel.
+  useEffect(() => {
+    if (new URLSearchParams(location.search).has("audience")) return;
+    const account = loadAccount();
+    if ((path === "/learn" || path === "/studio") && !account) {
+      history.replaceState(null, "", "/register");
+      flushSync(() => setPath("/register"));
+      return;
+    }
+    if (path === "/register" && account) {
+      history.replaceState(null, "", "/login");
+      flushSync(() => setPath("/login"));
+      return;
+    }
+    if (path === "/studio" && account && !account.learnedAt) {
+      history.replaceState(null, "", "/learn");
+      flushSync(() => setPath("/learn"));
+    }
+  }, [path]);
   const enterStudio = useCallback(() => {
     if (transitioning.current || location.pathname !== "/learn") return;
+    markLearned();
     transitioning.current = true;
     const navigate = () => {
       history.pushState(null, "", "/studio");
@@ -1278,8 +1679,21 @@ export default function App() {
     <Audience />
   ) : path === "/register" ? (
     <Suspense fallback={<div className="companion-loading">Готовим знакомство…</div>}><RegistrationPage /></Suspense>
+  ) : path === "/login" ? (
+    <Suspense fallback={<div className="companion-loading">Открываем вход…</div>}><LoginPage /></Suspense>
   ) : path === "/learn" ? (
-    <Suspense fallback={<div className="companion-loading">Готовим обучение…</div>}><LearningPage onEnterStudio={enterStudio} /></Suspense>
+    // First-run learning is a clean full-screen course; revisits live in the
+    // studio shell so the sidebar navigation is always at hand.
+    loadAccount()?.learnedAt ? (
+      <div className="studio studio-learning">
+        <StudioSidebar active="learn" />
+        <div className="studio-main">
+          <Suspense fallback={<div className="companion-loading">Готовим обучение…</div>}><LearningPage onEnterStudio={enterStudio} /></Suspense>
+        </div>
+      </div>
+    ) : (
+      <Suspense fallback={<div className="companion-loading">Готовим обучение…</div>}><LearningPage onEnterStudio={enterStudio} /></Suspense>
+    )
   ) : path === "/companion" ? (
     <Suspense fallback={<div className="companion-loading">Загружаем персонажа…</div>}><CompanionPreview /></Suspense>
   ) : path === "/studio" ? (

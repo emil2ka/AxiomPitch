@@ -1,45 +1,121 @@
-/* Original bridge controls. A dedicated design for this panel is deferred. */
-.studio .bridge-integration { background: #171a21; border: 1px solid #292e38; border-radius: 13px; padding: 20px; min-width: 0; }
-.studio .bridge-integration .panel-heading { font-size: 14px; color: #c3ccdb; }
-.studio .bridge-integration .panel-heading svg { width: 17px; color: #8695ab; }
-.studio .bridge-integration .button { border-radius: 8px; background: #202632; color: #d4dfef; border: 1px solid #343f52; padding: 10px 16px; font-size: 13px; }
-.studio .bridge-integration .bridge-state {
-  margin-left: auto;
-  color: #7d8b9f;
-  font-size: 10px;
-  letter-spacing: 0.8px;
-}
-.studio .bridge-integration .bridge-state.online {
-  color: #9dc0ff;
-}
+/* Bridge controls follow the studio's quiet, line-based language. */
+.studio .bridge-integration { background: transparent; border: 0; border-radius: 0; padding: 0; min-width: 0; }
 .studio .bridge-integration .target-row {
   display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
+  flex-direction: column;
+  align-items: stretch;
+  gap: 15px;
   margin-top: 16px;
 }
 .studio .bridge-integration .target-row select {
-  flex: 1 1 140px;
-  min-width: 0;
-  padding: 8px 10px;
-  border: 1px solid #323b4d;
-  border-radius: 8px;
-  background: #1d2431;
-  color: #bac9e0;
+  width: 100%;
+  appearance: none;
+  padding: 6px 22px 8px 0;
+  border: 0;
+  border-bottom: 1px solid #8eaec536;
+  border-radius: 0;
+  background-color: transparent;
+  background-image: url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='6'%3E%3Cpath d='M1 1l4 4 4-4' fill='none' stroke='%23607392' stroke-width='1.2'/%3E%3C/svg%3E");
+  background-repeat: no-repeat;
+  background-position: right 2px center;
+  color: #dbe6f3;
   font: inherit;
   font-size: 13px;
 }
+.studio .bridge-integration .target-row select:hover {
+  border-bottom-color: #8eaec561;
+}
+.studio .bridge-integration .target-row select:focus-visible {
+  outline: none;
+  border-bottom-color: #aacff3;
+}
+.studio .bridge-integration .target-row select:disabled {
+  opacity: 0.45;
+}
+.studio .bridge-integration .target-row select option {
+  background: #0b0f15;
+  color: #dbe6f3;
+}
+.studio .bridge-integration .target-app {
+  display: flex;
+  flex-direction: column;
+  gap: 5px;
+}
+.studio .bridge-integration .target-app > span {
+  font-size: 7px;
+  letter-spacing: 1.5px;
+  color: #465770;
+}
 .studio .bridge-integration .target-row .button {
-  flex: 1 1 auto;
+  min-height: 36px;
+  padding: 8px 16px;
+  font-size: 11px;
+}
+.studio .bridge-integration .target-row .button svg {
+  width: 14px;
+  height: 14px;
 }
 .studio .bridge-integration .target-status {
-  margin: 12px 0 0;
-  font-size: 13px;
-  line-height: 1.5;
-  color: #91a0b6;
+  margin: 14px 0 0;
+  font-size: 11px;
+  line-height: 1.6;
+  color: #5f748e;
 }
 .studio .bridge-integration .target-status.error {
-  color: #e4b187;
+  color: #d3b18c;
+}
+.studio .bridge-integration .text-button {
+  justify-content: flex-start;
+  gap: 7px;
+  margin: 14px 0 0;
+  padding: 6px 0;
+  font-size: 11px;
+}
+.studio .bridge-integration .bridge-setting {
+  margin: 14px 0 0;
+  align-items: center;
+  gap: 9px;
+  font-size: 11px;
+  line-height: 1.5;
+  color: #7d8ba0;
+}
+.studio .bridge-integration .bridge-setting input[type="checkbox"] {
+  appearance: none;
+  flex: 0 0 auto;
+  width: 13px;
+  height: 13px;
+  margin: 0;
+  border: 1px solid #ffffff2b;
+  border-radius: 3px;
+  background: transparent;
+}
+.studio .bridge-integration .bridge-setting input[type="checkbox"]:checked {
+  border-color: #aacff3;
+  background: #aacff3 url("data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='9' height='7'%3E%3Cpath d='M1 3.5L3.4 6 8 1' fill='none' stroke='%2310151d' stroke-width='1.6' stroke-linecap='round'/%3E%3C/svg%3E") center / 9px 7px no-repeat;
+}
+.studio .bridge-integration .bridge-setting input[type="checkbox"]:disabled {
+  opacity: 0.4;
+}
+.studio .bridge-integration .bridge-setting input[type="checkbox"]:focus-visible {
+  outline: 2px solid #aacff3;
+  outline-offset: 2px;
+}
+.studio .bridge-integration .bridge-setting input[type="number"] {
+  flex: 0 0 auto;
+  width: 44px;
+  max-width: 44px;
+  padding: 4px 0 6px;
+  border: 0;
+  border-bottom: 1px solid #8eaec536;
+  border-radius: 0;
+  background: transparent;
+  color: #c2d0e0;
+  font-size: 12px;
+  text-align: center;
+}
+.studio .bridge-integration .bridge-setting input[type="number"]:focus-visible {
+  outline: none;
+  border-bottom-color: #aacff3;
 }
 
 @media (max-width: 700px) { .studio .bridge-integration { grid-column: 1 / -1; } }

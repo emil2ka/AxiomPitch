@@ -15,12 +15,12 @@
 .story-introduction { padding-bottom: 52px; }
 .axiom-journey .story-introduction h2 { font-size: clamp(38px, 4.3vw, 56px); line-height: 1.08; letter-spacing: -.05em; }
 .story-introduction .axiom-journey-description { max-width: 52ch; margin-top: 24px; font-size: 14px; color: #8e9ab0; }
-.axiom-cta.story-final { padding: 92px 24px 112px; background: radial-gradient(ellipse 45% 60% at 50% 60%, #142d472b, transparent 80%), #06070a; }
+.axiom-cta.story-final { padding: 92px 24px 112px; background: #06070a; }
 .story-final .pixel-companion { width: 300px; margin: 0 auto 22px; }
 .story-final .landing-eyebrow { color: #6b89a9; font-size: 8px; letter-spacing: 2px; }
 .story-final h2 { font-size: clamp(40px, 4.8vw, 62px); line-height: 1.08; letter-spacing: -.055em; }
 .story-final p:not(.landing-eyebrow) { font-size: 13px; margin-top: 24px; color: #8999af; }
-.story-final-note { display: flex; align-items: center; justify-content: center; gap: 7px; color: #60758e; font-size: 9px; margin-top: 24px; }
+.story-final-note { display: flex; align-items: center; justify-content: center; gap: 7px; color: #708399; font-size: 12px; margin-top: 24px; }
 /* A single large stage links the explanation, the guide and the product. */
 .axiom-landing .axiom-journey > .landing-section { max-width: 1600px; padding: 90px 64px 0; }
 .story-introduction { max-width: 1104px; margin: auto; padding-bottom: 54px; }
@@ -237,7 +237,7 @@
 .story-gesture-scene .story-motion-feedback { justify-content: center; margin-top: 24px; }
 .story-gesture-scene .story-command-controls { justify-content: center; gap: 22px; }
 .story-command-controls button.selected:not(:disabled)::after { left: 10px; }
-.story-coach-stage { position: relative; min-height: 470px; background: radial-gradient(ellipse at 60% 60%, #19314570, transparent 65%); }
+.story-coach-stage { position: relative; min-height: 470px; }
 .story-coach-preview { width: 55%; margin: 0 0 0 auto; opacity: .7; }
 .story-coach-preview .story-canvas { height: 160px; border-radius: 6px; }
 .story-coach-preview .story-canvas-slide { padding: 16px 20px; }
@@ -284,6 +284,16 @@
   .story-hint-toast { padding: 16px 18px; gap: 12px; }
   .story-hint-toast p { font-size: 12px; }
 }
+
+/* Entry points: log in to the local account or create a new one. */
+.landing-header-actions { display: flex; align-items: center; gap: 18px; }
+.landing-header-login { color: #a7b6ca; font-size: 13px; transition: color .2s; }
+.landing-header-login:hover { color: #ffffff; }
+.hero-login { margin: 20px 0 0; color: #7f93ab; font-size: 13px; }
+.hero-login a { color: #cfe0f2; border-bottom: 1px solid #ffffff26; padding-bottom: 1px; transition: color .2s, border-color .2s; }
+.hero-login a:hover { color: #ffffff; border-color: #ffffff59; }
+@media (max-width: 560px) { .landing-header-login { display: none; } }
+@media (prefers-reduced-motion: reduce) { .landing-header-login, .hero-login a { transition: none; } }
 
 /* The supplied PDF is displayed intact, including its original page proportions. */
 .story-pdf-canvas, .story-coach-preview .story-pdf-canvas { height: auto; aspect-ratio: 1376 / 768; background: #080a0e; }

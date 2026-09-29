@@ -2,35 +2,49 @@
 .registration-header { height: 80px; display: flex; align-items: center; justify-content: space-between; gap: 24px; }
 .registration-header .pitch-brand { font-size: 13px; letter-spacing: 1.5px; gap: 9px; }
 .registration-header .pitch-mark, .registration-header .pitch-mark img { width: 30px; height: 28px; }
-.registration-back { display: flex; align-items: center; gap: 9px; color: #7286a0; font-size: 11px; }
+.registration-back { display: flex; align-items: center; gap: 9px; color: #7d90a8; font-size: 12px; }
 .registration-back:hover { color: #d0e4fb; }
 .registration-main { width: min(1000px, 100%); margin: clamp(50px, 10vh, 115px) auto 0; display: grid; grid-template-columns: 350px minmax(0, 1fr); align-items: center; gap: 160px; padding-bottom: 65px; }
-.registration-eyebrow { color: #7d96b4; font-size: 8px; letter-spacing: 2px; }
-.registration-copy h1 { margin: 24px 0 0; font-weight: 450; font-size: clamp(68px, 6.6vw, 94px); line-height: .98; letter-spacing: -.065em; }
-.registration-copy h1 > span { color: #a9c5e4; }
-.registration-copy form { margin-top: 46px; }
-.registration-copy label { display: block; font-size: 11px; color: #9db0c8; }
-.registration-copy input { display: block; width: 100%; min-height: 47px; margin: 4px 0 27px; padding: 10px 0; background: transparent; border: 0; border-bottom: 1px solid #8eaec526; border-radius: 0; color: #edf5ff; font-size: 14px; outline: none; transition: border-color .2s; }
-.registration-copy input::placeholder { color: #43566f; }
+.registration-eyebrow { color: #7d96b4; font-size: 11px; letter-spacing: 2px; }
+.registration-copy h1 { margin: 22px 0 0; font-weight: 450; font-size: clamp(68px, 6.6vw, 94px); line-height: .98; letter-spacing: -.065em; }
+.entry-line { display: block; overflow: hidden; padding-bottom: .06em; margin-bottom: -.06em; }
+.registration-copy h1 .entry-line.accent > span { color: #a9c5e4; }
+.registration-copy form { margin-top: 44px; }
+.registration-copy label { display: block; font-size: 13px; color: #9db0c8; }
+.registration-copy input { display: block; width: 100%; min-height: 46px; margin: 6px 0 26px; padding: 10px 0; background: transparent; border: 0; border-bottom: 1px solid #8eaec53d; border-radius: 0; color: #edf5ff; font-size: 15px; outline: none; transition: border-color .2s; }
+.registration-copy input::placeholder { color: #5a7089; }
 .registration-copy input:focus { border-color: #aacff3; }
-.registration-copy form > button { width: 100%; display: flex; justify-content: center; align-items: center; gap: 24px; margin-top: 32px; padding: 16px 22px; min-height: 50px; border: 0; border-radius: 100px; background: #edf4fc; color: #162130; font-size: 13px; font-weight: 500; transition: background .2s, gap .2s; }
+.registration-copy form > button { width: 100%; display: flex; justify-content: center; align-items: center; gap: 24px; margin-top: 30px; padding: 16px 22px; min-height: 52px; border: 0; border-radius: 100px; background: #edf4fc; color: #162130; font-size: 14px; font-weight: 500; transition: background .2s, gap .2s; }
 .registration-copy form > button:hover { background: #d2e7fe; gap: 30px; }
-.registration-demo-note { color: #526881; font-size: 9px; line-height: 1.6; margin: 16px 0 0; text-align: center; }
+.registration-error { margin: -14px 0 20px; color: #d9b28c; font-size: 12px; line-height: 1.5; }
+.login-lead { margin: 24px 0 18px; font-size: 14px; line-height: 1.6; color: #9db0c8; }
+.login-account { display: flex; align-items: center; gap: 14px; padding: 14px 0; border-top: 1px solid #8eaec52b; border-bottom: 1px solid #8eaec52b; }
+.login-avatar { display: grid; place-items: center; width: 44px; height: 44px; border-radius: 50%; background: #ffffff0a; color: #d7e6f6; font-size: 14px; flex-shrink: 0; }
+.login-account-copy { display: flex; flex-direction: column; gap: 3px; min-width: 0; }
+.login-account-copy strong { font-size: 15px; font-weight: 500; color: #edf5ff; overflow-wrap: anywhere; }
+.login-account-copy small { font-size: 12px; color: #7d96b4; overflow-wrap: anywhere; }
+.login-primary { width: 100%; display: flex; justify-content: center; align-items: center; gap: 24px; margin-top: 26px; padding: 16px 22px; min-height: 52px; border: 0; border-radius: 100px; background: #edf4fc; color: #162130; font-size: 14px; font-weight: 500; transition: background .2s, gap .2s; }
+.login-primary:hover { background: #d2e7fe; gap: 30px; }
+.login-reset { display: flex; align-items: center; justify-content: center; gap: 7px; width: 100%; margin-top: 14px; padding: 8px; border: 0; background: none; color: #7d90a8; font-size: 12px; transition: color .2s; }
+.login-reset:hover { color: #d0e4fb; }
+@media (prefers-reduced-motion: reduce) {
+  .login-primary { transition: none; }
+}
+.registration-demo-note { color: #6b8098; font-size: 12px; line-height: 1.6; margin: 16px 0 0; text-align: center; }
 .registration-companion { min-width: 0; text-align: center; }
-.registration-scene { position: relative; height: 400px; width: 100%; }
-.registration-scene-glow { position: absolute; inset: 30px -15px -10px; pointer-events: none; background: radial-gradient(ellipse at 55% 65%, #1b42642b, transparent 65%); }
-.registration-slide { position: absolute; width: 340px; aspect-ratio: 16 / 10; left: 10px; top: 58px; padding: 22px; background: #e7ecf1; color: #1e2c3f; border-radius: 7px; text-align: left; transform: rotate(-7deg); overflow: hidden; box-shadow: 0 25px 70px #0004; animation: registration-slide-float 7s ease-in-out infinite; }
-.registration-slide-header { display: flex; justify-content: space-between; align-items: center; font-size: 6px; letter-spacing: 1px; color: #8694a7; }
-.registration-slide-title { display: block; font-size: 36px; line-height: 1.02; font-weight: 450; letter-spacing: -1.8px; margin-top: 35px; position: relative; z-index: 1; }
-.registration-slide-bottom { position: absolute; left: 22px; bottom: 18px; font-size: 6px; letter-spacing: 1px; color: #8a97a9; }
-.registration-slide-orbit { position: absolute; width: 130px; height: 130px; top: 50px; right: -20px; transform: rotate(-20deg); }
-.registration-slide-orbit i { position: absolute; inset: 0; border: 16px solid #90b9e2; border-radius: 50%; }
-.registration-slide-orbit i:last-child { transform: translate(25px, 22px); opacity: .5; }
-.registration-companion .pixel-companion { position: absolute; width: 320px; max-width: 100%; margin: 0; right: -30px; bottom: -5px; filter: drop-shadow(0 18px 24px #02050b70); }
-.registration-companion > p { color: #819bb9; font-size: 11px; margin: 20px 0 0; line-height: 1.6; }
+.registration-scene { position: relative; height: 356px; width: 100%; }
+.registration-deck { position: relative; width: min(390px, 100%); margin: 40px 0 0; text-align: left; }
+.registration-slide { position: relative; aspect-ratio: 1376 / 768; border-radius: 10px; overflow: hidden; background: #0b0f15; box-shadow: 0 24px 60px #00000059; }
+.registration-slide img { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: cover; }
+/* Mirrored so the pointing hand lands on the slide instead of empty space. */
+.registration-deck .pixel-companion { position: absolute; width: 64%; max-width: none; margin: 0; right: -22%; bottom: -30%; transform: scaleX(-1); filter: drop-shadow(0 16px 22px #02050b70); }
+.registration-dots { position: absolute; left: 0; bottom: -26px; display: flex; gap: 8px; }
+.registration-dots button { width: 6px; height: 6px; padding: 0; border: 0; border-radius: 50%; background: #ffffff1f; transition: background .2s, transform .2s; }
+.registration-dots button.active { background: #cfe0f2; transform: scale(1.2); }
+.registration-dots button:hover { background: #ffffff45; }
+@media (prefers-reduced-motion: reduce) { .registration-dots button { transition: none; } }
 .registration-page a:focus-visible, .registration-page button:focus-visible { outline: 2px solid #b1d6ff; outline-offset: 5px; }
-@keyframes registration-slide-float { 0%, 100% { transform: translateY(0) rotate(-7deg); } 50% { transform: translateY(-7px) rotate(-5deg); } }
-@media (prefers-reduced-motion: reduce) { .registration-slide { animation: none; } .registration-copy form > button { transition: none; } }
-@media (max-width: 1100px) { .registration-main { gap: 85px; grid-template-columns: 330px minmax(0, 1fr); } .registration-slide { width: 300px; left: 0; } .registration-companion .pixel-companion { width: 280px; right: -15px; } }
-@media (max-width: 850px) { .registration-main { gap: 35px; grid-template-columns: minmax(0, 310px) minmax(0, 1fr); margin-top: 45px; } .registration-copy h1 { font-size: 72px; } .registration-scene { height: 340px; } .registration-slide { width: 240px; padding: 18px; } .registration-slide-title { font-size: 29px; margin-top: 25px; } .registration-companion .pixel-companion { width: 240px; right: -5px; } .registration-companion > p { font-size: 10px; } }
-@media (max-width: 650px) { .registration-page { padding-inline: 24px; } .registration-header { height: 70px; } .registration-header .pitch-brand { font-size: 11px; letter-spacing: 1px; } .registration-main { display: flex; flex-direction: column; align-items: stretch; gap: 32px; max-width: 350px; margin-top: 38px; padding-bottom: 40px; } .registration-copy h1 { font-size: 76px; } .registration-copy form { margin-top: 34px; } .registration-scene { height: 215px; width: 290px; max-width: 100%; margin: 0 auto; } .registration-slide { width: 220px; left: 5px; top: 8px; padding: 16px; } .registration-slide-title { font-size: 26px; margin-top: 23px; } .registration-slide-bottom { left: 16px; bottom: 14px; } .registration-slide-orbit { width: 95px; height: 95px; top: 32px; } .registration-slide-orbit i { border-width: 12px; } .registration-companion .pixel-companion { width: 205px; right: -12px; bottom: -4px; } .registration-companion > p { margin-top: 13px; } .registration-scene-glow { inset: 0; } }
+@media (prefers-reduced-motion: reduce) { .registration-copy form > button { transition: none; } }
+@media (max-width: 1100px) { .registration-main { gap: 85px; grid-template-columns: 330px minmax(0, 1fr); } .registration-scene { height: 320px; } .registration-deck { width: min(340px, 100%); margin-top: 34px; } }
+@media (max-width: 850px) { .registration-main { gap: 35px; grid-template-columns: minmax(0, 310px) minmax(0, 1fr); margin-top: 45px; } .registration-copy h1 { font-size: 72px; } .registration-scene { height: 270px; } .registration-deck { width: min(290px, 100%); margin-top: 28px; } }
+@media (max-width: 650px) { .registration-page { padding-inline: 24px; } .registration-header { height: 70px; } .registration-header .pitch-brand { font-size: 11px; letter-spacing: 1px; } .registration-main { display: flex; flex-direction: column; align-items: stretch; gap: 32px; max-width: 350px; margin-top: 38px; padding-bottom: 40px; } .registration-copy h1 { font-size: 76px; } .registration-copy form { margin-top: 34px; } .registration-scene { height: 232px; width: 290px; max-width: 100%; margin: 0 auto; } .registration-deck { width: 230px; margin: 18px auto 0; } .registration-companion > p { margin-top: 12px; } }

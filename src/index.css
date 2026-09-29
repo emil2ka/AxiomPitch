@@ -990,33 +990,49 @@ button svg {
 }
 .audience-wait {
   text-align: center;
-  color: #8ea9d0;
+  color: #dfe7f0;
 }
-.audience-wait span {
-  color: #6087c4;
-  font-size: 12px;
-  letter-spacing: 4px;
+.audience-wait .pitch-brand {
+  justify-content: center;
+  font-size: 15px;
+  letter-spacing: 1.5px;
+  color: #eef3f9;
+}
+.audience-wait .pitch-mark,
+.audience-wait .pitch-mark img {
+  width: 34px;
+  height: 30px;
 }
 .audience-wait h1 {
-  font-size: 65px;
+  margin: 26px 0 0;
+  font-size: clamp(46px, 7vw, 88px);
   font-weight: 450;
-  color: #cdddf8;
+  letter-spacing: -0.04em;
+  color: #eef3f9;
+}
+.audience-wait p {
+  margin: 18px 0 0;
+  color: #93a3b8;
+  font-size: 17px;
 }
 .audience-fullscreen {
   position: fixed;
-  bottom: 20px;
-  right: 20px;
-  color: #9caecb;
-  background: #1d2a3ee0;
-  border: 1px solid #3c506f;
-  border-radius: 8px;
-  padding: 10px 14px;
-  font-size: 12px;
-  opacity: 0.5;
+  bottom: 24px;
+  right: 24px;
+  padding: 12px 20px;
+  border: 0;
+  border-radius: 100px;
+  background: #eef3f9;
+  color: #141a22;
+  font-size: 13px;
+  font-weight: 500;
+  opacity: 0.88;
+  transition: opacity 0.2s, background 0.2s;
 }
 .audience-fullscreen:hover,
 .audience-fullscreen:focus-visible {
   opacity: 1;
+  background: #ffffff;
 }
 @media (min-width: 1700px) {
   .demo-slide h1 {
@@ -2889,14 +2905,14 @@ html:has(.axiom-landing) {
   margin: 16px 0 20px;
 }
 .companion-intro > p:last-child {
-  color: #858b99;
-  font-size: 16px;
+  color: #98a2b1;
+  font-size: 15px;
 }
 .companion-back {
   display: flex;
   align-items: center;
   gap: 8px;
-  color: #939aa7;
+  color: #7d90a8;
   font-size: 12px;
 }
 .companion-workbench {
@@ -2907,46 +2923,28 @@ html:has(.axiom-landing) {
 }
 .companion-model {
   position: relative;
-  overflow: hidden;
-  border: 1px solid #263043;
-  border-radius: 28px;
-  background: radial-gradient(ellipse at 50% 38%, #1c345355, transparent 60%),
-    linear-gradient(160deg, #111821, #0a0e15);
-}
-.companion-model::before {
-  content: "";
-  position: absolute;
-  width: 220px;
-  height: 25px;
-  border-radius: 50%;
-  background: #081527;
-  filter: blur(17px);
-  left: calc(50% - 110px);
-  top: 64%;
-  pointer-events: none;
 }
 .companion-mode {
   position: relative;
   display: flex;
   align-items: center;
   gap: 8px;
-  padding: 24px 26px;
-  color: #919cab;
-  font-size: 11px;
+  padding: 0 0 12px;
+  color: #8b9bb0;
+  font-size: 12px;
 }
 .companion-mode > span {
   height: 5px;
   width: 5px;
-  background: #7193bf;
+  background: #6f89a8;
   border-radius: 50%;
 }
 .companion-mode.live > span {
-  background: #84dcad;
-  box-shadow: 0 0 12px #84dcad70;
+  background: #9fd0b4;
 }
 .companion-stage {
   position: relative;
-  height: 330px;
+  height: 360px;
   width: 100%;
 }
 .companion-stage .avatar-scene {
@@ -2957,10 +2955,10 @@ html:has(.axiom-landing) {
   display: flex;
   align-items: center;
   justify-content: space-between;
-  border-top: 1px solid #ffffff09;
-  padding: 18px 26px;
-  color: #97a7bd;
-  font-size: 12px;
+  border-top: 1px solid #ffffff0f;
+  padding: 16px 0;
+  color: #93a3b8;
+  font-size: 13px;
 }
 .companion-model-bottom > span {
   display: flex;
@@ -2970,19 +2968,23 @@ html:has(.axiom-landing) {
 .companion-model-bottom button {
   display: grid;
   place-items: center;
-  border: 1px solid #ffffff12;
-  background: #ffffff04;
+  width: 34px;
+  height: 34px;
+  border: 0;
   border-radius: 50%;
-  width: 32px;
-  height: 32px;
+  background: #ffffff08;
   color: #b1c6e2;
 }
+.companion-model-bottom button:hover {
+  background: #ffffff12;
+  color: #e6eef8;
+}
 .companion-controls {
-  padding: 18px 0 0;
+  padding: 14px 0 0;
 }
 .companion-control-eyebrow {
-  color: #8da5c5;
-  font-size: 10px;
+  color: #7d96b4;
+  font-size: 11px;
   letter-spacing: 0.14em;
 }
 .companion-controls h2 {
@@ -2990,58 +2992,61 @@ html:has(.axiom-landing) {
   line-height: 1.15;
   letter-spacing: -0.04em;
   font-weight: 500;
-  margin: 20px 0 25px;
+  margin: 18px 0 10px;
 }
 .companion-poses {
   display: flex;
   flex-wrap: wrap;
-  gap: 8px;
+  gap: 4px 26px;
 }
 .companion-poses button {
-  color: #a3acb9;
-  background: #ffffff03;
-  border: 1px solid #ffffff12;
-  border-radius: 20px;
-  font-size: 11px;
-  padding: 10px 14px;
-  transition:
-    color 0.2s,
-    background 0.2s,
-    border-color 0.2s;
+  position: relative;
+  padding: 10px 0;
+  border: 0;
+  background: none;
+  color: #8794a6;
+  font-size: 13px;
+  transition: color 0.2s;
 }
 .companion-poses button[aria-pressed="true"] {
-  background: #91c2ff16;
-  border-color: #91c2ff65;
-  color: #c5dfff;
+  color: #e2edf9;
+}
+.companion-poses button[aria-pressed="true"]::after {
+  content: "";
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 2px;
+  background: #98c9ef;
 }
 .companion-poses button:hover:not(:disabled) {
-  color: #f0f6ff;
-  border-color: #ffffff40;
+  color: #dbe6f3;
 }
 .companion-pose-note {
-  min-height: 54px;
-  font-size: 13px;
-  color: #8996a9;
+  min-height: 46px;
+  font-size: 14px;
+  color: #96a3b4;
   line-height: 1.7;
-  margin: 22px 0 25px;
+  margin: 18px 0 22px;
 }
 .companion-camera {
   padding-top: 22px;
-  border-top: 1px solid #ffffff12;
+  border-top: 1px solid #ffffff0f;
 }
 .companion-camera > span:first-child {
-  font-size: 16px;
+  font-size: 15px;
   color: #dce4ef;
 }
 .companion-camera > p {
-  color: #788699;
+  color: #7d8da1;
   line-height: 1.6;
-  font-size: 12px;
-  margin: 12px 0 18px;
+  font-size: 13px;
+  margin: 10px 0 18px;
 }
 .companion-camera .landing-button {
-  min-height: 42px;
-  font-size: 12px;
+  min-height: 46px;
+  font-size: 13px;
   width: 100%;
   justify-content: center;
 }
@@ -3051,8 +3056,8 @@ html:has(.axiom-landing) {
   max-height: 200px;
   object-fit: cover;
   transform: scaleX(-1);
-  border-radius: 14px;
-  border: 1px solid #ffffff18;
+  border-radius: 10px;
+  border: 1px solid #ffffff14;
   margin-bottom: 15px;
 }
 .companion-privacy {
@@ -3060,8 +3065,8 @@ html:has(.axiom-landing) {
   align-items: center;
   justify-content: center;
   gap: 6px;
-  font-size: 10px;
-  color: #657589;
+  font-size: 12px;
+  color: #6d8096;
   margin-top: 14px;
 }
 .companion-camera .companion-camera-error {
@@ -3096,11 +3101,8 @@ html:has(.axiom-landing) {
   .companion-controls {
     padding: 20px 4px 0;
   }
-  .companion-model {
-    border-radius: 22px;
-  }
   .companion-mode {
-    padding: 20px;
+    padding: 0 0 12px;
   }
   .companion-back {
     display: none;

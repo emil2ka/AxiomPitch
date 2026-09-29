@@ -4,6 +4,7 @@ import { motion, useReducedMotion } from "motion/react";
 import { ArrowRight, ShieldCheck } from "lucide-react";
 import { PitchStory } from "./PitchStory";
 import { PixelCompanion } from "./PixelCompanion";
+import { accountHome, loadAccount } from "../lib/account";
 
 export function PitchBrand() {
   return <span className="pitch-brand"><span className="pitch-mark" aria-hidden="true"><img src="/brand/companion-mark.svg" alt="" width={36} height={32} /></span><span>AXIOM<span className="pitch-brand-suffix">PITCH</span></span></span>;
@@ -25,12 +26,21 @@ function Reveal({ children, className, delay = 0 }: { children: ReactNode; class
 
 export function Landing() {
   const reduce = !!useReducedMotion();
+  const account = loadAccount();
+  const startHref = accountHome(account);
   return (
     <div className="landing axiom-landing">
       <header className="landing-header"><div className="landing-header-inner">
         <a href="/" aria-label="AxiomPitch — на главную"><PitchBrand /></a>
         <nav aria-label="Навигация по сайту"><a href="#journey">Как это работает</a><a href="#companion">Помощник</a></nav>
-        <a className="landing-button light compact" href="/register">Начать</a>
+        <div className="landing-header-actions">
+          {account ? (
+            <a className="landing-button light compact" href={startHref}>Продолжить</a>
+          ) : (<>
+            <a className="landing-header-login" href="/login">Войти</a>
+            <a className="landing-button light compact" href="/register">Регистрация</a>
+          </>)}
+        </div>
       </div></header>
       <main>
         <section className="axiom-hero">
@@ -59,7 +69,8 @@ export function Landing() {
               ))}
             </h1>
             <motion.p className="hero-description" initial={reduce ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.5, ease: heroEase }}>Рассказывай свою историю.<br />Мы поможем держать её в движении.</motion.p>
-            <motion.div className="hero-actions" initial={reduce ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.6, ease: heroEase }}><a className="landing-button light" href="/register">Начать репетицию <ArrowRight size={16} /></a><a className="landing-button outline" href="#journey">Посмотреть демо</a></motion.div>
+            <motion.div className="hero-actions" initial={reduce ? false : { opacity: 0, y: 18 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: 0.7, delay: 0.6, ease: heroEase }}><a className="landing-button light" href={startHref}>{account ? "Продолжить репетицию" : "Создать аккаунт"} <ArrowRight size={16} /></a><a className="landing-button outline" href="#journey">Посмотреть демо</a></motion.div>
+            {!account && <motion.p className="hero-login" initial={reduce ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: 0.7, delay: 0.75 }}>Уже есть аккаунт? <a href="/login">Войти</a></motion.p>}
           </div>
         </section>
         <section className="landing-section axiom-companion companion-introduction" id="companion" aria-labelledby="companion-title">
@@ -72,7 +83,7 @@ export function Landing() {
           <Reveal className="story-introduction"><p className="landing-eyebrow">ПРОЖИВИ СВОЁ ВЫСТУПЛЕНИЕ</p><h2>Листай вниз.<br /><span>История уже в движении.</span></h2><p className="axiom-journey-description">Листай — помощник всё покажет.</p></Reveal>
           <PitchStory />
         </div></section>
-        <section className="landing-cta axiom-cta story-final" id="your-turn"><Reveal className="axiom-cta-inner"><PixelCompanion action="invite" /><p className="landing-eyebrow">ТЕПЕРЬ ТВОЙ ВЫХОД</p><h2>Теперь<br />попробуй сам.</h2><p>Загрузи свою презентацию.<br />Дальше — в твоих руках.</p><div className="hero-actions"><a href="/register" className="landing-button light">Начать репетицию <ArrowRight size={16} /></a><a href="#journey" className="landing-button outline">Ещё раз посмотреть демо</a></div><span className="story-final-note"><ShieldCheck size={12} /> Камера и PDF остаются на устройстве</span></Reveal></section>
+        <section className="landing-cta axiom-cta story-final" id="your-turn"><Reveal className="axiom-cta-inner"><PixelCompanion action="invite" /><p className="landing-eyebrow">ТЕПЕРЬ ТВОЙ ВЫХОД</p><h2>Теперь<br />попробуй сам.</h2><p>Загрузи свою презентацию.<br />Дальше — в твоих руках.</p><div className="hero-actions"><a href={startHref} className="landing-button light">{account ? "Продолжить репетицию" : "Создать аккаунт"} <ArrowRight size={16} /></a><a href="#journey" className="landing-button outline">Ещё раз посмотреть демо</a></div><span className="story-final-note"><ShieldCheck size={12} /> Камера и PDF остаются на устройстве</span></Reveal></section>
       </main>
       <footer className="landing-footer axiom-footer"><span>Камера и PDF остаются на устройстве.</span><span>AxiomPitch · Motion Hackathon 2026</span></footer>
     </div>

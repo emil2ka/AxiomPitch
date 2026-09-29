@@ -1,16 +1,35 @@
+import { useState } from "react";
 import type { FormEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
 import { PitchBrand } from "./Landing";
-import { PixelCompanion } from "./PixelCompanion";
+import { EntryScene } from "./EntryScene";
+import { accountHome, loadAccount, looksLikeEmail, saveAccount } from "../lib/account";
 import "../registration.css";
+
+const heroEase: [number, number, number, number] = [0.22, 1, 0.36, 1];
 
 export function RegistrationPage() {
   const reduced = useReducedMotion();
-  const continueToLearning = (event: FormEvent<HTMLFormElement>) => {
+  const [existing] = useState(() => loadAccount());
+  const [name, setName] = useState(existing?.name ?? "");
+  const [email, setEmail] = useState(existing?.email ?? "");
+  const [error, setError] = useState("");
+  // Temporary local account: it never leaves this device and has no password.
+  const continueForward = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault();
-    // Temporary entry screen: no account, network request or stored credentials.
-    window.location.assign("/learn");
+    const cleanName = name.trim();
+    const cleanEmail = email.trim();
+    if (cleanName.length < 2) {
+      setError("Напиши имя — хотя бы два символа.");
+      return;
+    }
+    if (!looksLikeEmail(cleanEmail)) {
+      setError("Проверь почту: нужен адрес вида you@example.com.");
+      return;
+    }
+    const account = saveAccount(cleanName, cleanEmail);
+    window.location.assign(accountHome(account));
   };
 
   return <div className="registration-page">
@@ -20,29 +39,22 @@ export function RegistrationPage() {
     </header>
     <main className="registration-main">
       <motion.section className="registration-copy" initial={reduced ? false : { opacity: 0, y: 16 }} animate={{ opacity: 1, y: 0 }} transition={{ duration: .6 }} aria-labelledby="registration-title">
-        <span className="registration-eyebrow">РЕГИСТРАЦИЯ</span>
-        <h1 id="registration-title">Твой<br /><span>выход.</span></h1>
-        <form onSubmit={continueToLearning}>
+        <span className="registration-eyebrow">{existing ? "С ВОЗВРАЩЕНИЕМ" : "РЕГИСТРАЦИЯ"}</span>
+        <h1 id="registration-title" aria-label="Твой выход.">
+          <span className="entry-line"><motion.span initial={reduced ? false : { y: "112%" }} animate={{ y: 0 }} transition={{ duration: .8, delay: .05, ease: heroEase }}>Твой</motion.span></span>
+          <span className="entry-line accent"><motion.span initial={reduced ? false : { y: "112%" }} animate={{ y: 0 }} transition={{ duration: .8, delay: .14, ease: heroEase }}>выход.</motion.span></span>
+        </h1>
+        <form onSubmit={continueForward} noValidate>
           <label htmlFor="registration-name">Имя</label>
-          <input id="registration-name" name="name" autoComplete="given-name" placeholder="Как тебя зовут" maxLength={80} />
+          <input id="registration-name" name="name" autoComplete="given-name" placeholder="Как тебя зовут" maxLength={80} value={name} onChange={(event) => { setName(event.target.value); setError(""); }} />
           <label htmlFor="registration-email">Почта</label>
-          <input id="registration-email" name="email" type="email" autoComplete="email" placeholder="you@example.com" maxLength={254} />
-          <button type="submit">Начать <ArrowRight size={16} /></button>
-          <p className="registration-demo-note">Демо · без создания аккаунта</p>
+          <input id="registration-email" name="email" type="email" autoComplete="email" placeholder="you@example.com" maxLength={254} value={email} onChange={(event) => { setEmail(event.target.value); setError(""); }} />
+          {error && <p className="registration-error" role="alert">{error}</p>}
+          <button type="submit">{existing ? "Продолжить" : "Начать"} <ArrowRight size={16} /></button>
         </form>
       </motion.section>
       <motion.aside className="registration-companion" initial={reduced ? false : { opacity: 0 }} animate={{ opacity: 1 }} transition={{ duration: .8, delay: .15 }}>
-        <div className="registration-scene">
-          <div className="registration-scene-glow" />
-          <div className="registration-slide" aria-hidden="true">
-            <div className="registration-slide-header"><span>AXIOM / YOUR STORY</span><span>01</span></div>
-            <span className="registration-slide-title">Твоя<br />история.</span>
-            <div className="registration-slide-orbit"><i /><i /></div>
-            <span className="registration-slide-bottom">MAKE IT YOURS.</span>
-          </div>
-          <PixelCompanion action="invite" />
-        </div>
-        <p>Всё начинается с твоей презентации.</p>
+        <EntryScene action="invite" />
       </motion.aside>
     </main>
   </div>;

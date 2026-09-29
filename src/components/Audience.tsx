@@ -1,5 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Slide } from "../lib/types";
+import { PitchBrand } from "./Landing";
 import { SlideView } from "./SlideView";
 
 export function Audience() {
@@ -29,14 +30,14 @@ export function Audience() {
     <main className="audience-screen">
       {ended ? (
         <div className="audience-wait">
-          <span>AXIOMPITCH</span>
+          <PitchBrand />
           <h1>Спасибо!</h1>
         </div>
       ) : slide ? (
         <SlideView slide={slide} />
       ) : (
         <div className="audience-wait">
-          <span>AXIOMPITCH</span>
+          <PitchBrand />
           <p>Ждём презентацию от спикера…</p>
         </div>
       )}
