@@ -19,7 +19,11 @@ export type LiveFrame = {
   handWorlds?: Point[][];
   handLabels?: string[];
 };
-export type LiveCommand = { type: "command"; gesture: Gesture; locked: boolean };
+export type LiveCommand = {
+  type: "command";
+  gesture: Gesture;
+  locked: boolean;
+};
 export type LiveSession = {
   type: "session";
   stage: "idle" | "running" | "paused" | "finished";
@@ -74,7 +78,12 @@ export function parseFrame(message: Record<string, unknown>): LiveFrame | null {
   const pose = points(message.pose, 33);
   const palms = hands(message.hands);
   if (!finite(message.time) || !pose || !palms) return null;
-  const frame: LiveFrame = { type: "frame", time: message.time, pose, hands: palms };
+  const frame: LiveFrame = {
+    type: "frame",
+    time: message.time,
+    pose,
+    hands: palms,
+  };
   if (message.poseWorld !== undefined) {
     const world = points(message.poseWorld, 33);
     if (!world) return null;
