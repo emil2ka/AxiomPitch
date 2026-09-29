@@ -1,0 +1,4 @@
+html.overlay-page, html.overlay-page body { min-width: 0; background: transparent; overflow: hidden; }
+html.overlay-page body { width: 100vw; margin: 0; }
+.overlay-notch { height: 100svh; position: relative; overflow: hidden; background: #030406; border-radius: 0 0 18px 18px; }
+.overlay-avatar { position: absolute; inset: 4px 0; }

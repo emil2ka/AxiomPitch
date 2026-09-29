@@ -98,7 +98,7 @@ export function useCamera(onFrame: (frame: VisionFrame) => void) {
           busy ||
           video.readyState < 2 ||
           video.currentTime === lastTime ||
-          time - lastSent < 70
+          time - lastSent < 50
         )
           return;
         busy = true;

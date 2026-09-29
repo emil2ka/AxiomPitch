@@ -31,7 +31,7 @@ export type LiveSession = {
 export type OverlayState = { visible: boolean; displayId: number | null };
 export type LiveFrame = Pick<
   VisionFrame,
-  "time" | "pose" | "hands" | "poseWorld" | "handWorlds" | "handLabels"
+  "time" | "pose" | "hands" | "poseWorld" | "handWorlds" | "handLabels" | "handScores"
 >;
 export type Hello = {
   locked: boolean;
@@ -62,6 +62,7 @@ export function trimFrame(frame: VisionFrame): LiveFrame {
     ...(frame.poseWorld && { poseWorld: trimPoints(frame.poseWorld) }),
     ...(frame.handWorlds && { handWorlds: frame.handWorlds.map(trimPoints) }),
     ...(frame.handLabels && { handLabels: frame.handLabels }),
+    ...(frame.handScores && { handScores: frame.handScores.map(round) }),
   };
 }
 

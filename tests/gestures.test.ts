@@ -60,14 +60,43 @@ test("one held palm cannot repeatedly toggle without lowering the hand", () => {
   engine.update(pose, [palm()], 4500, true);
   assert.equal(engine.update(pose, [palm()], 6000, true).gesture, "toggle");
 });
-test("hands below shoulders do not produce accidental commands", () => {
+test("hand-only commands work low in the frame with no body landmarks", () => {
   const engine = new GestureEngine();
-  for (let time = 0; time < 5000; time += 200)
-    assert.equal(
-      engine.update(pose, [palm(0.3 + (time % 500) / 1000, 0.8)], time, false)
-        .gesture,
-      undefined,
-    );
+  engine.update([], [palm(.4, .8)], 0, false);
+  assert.equal(engine.update([], [palm(.7, .8)], 500, false).gesture, "next");
+  engine.reset();
+  engine.update([], [palm(.4, .8)], 0, false);
+  assert.equal(engine.update([], [palm(.4, .8)], 1500, false).gesture, "toggle");
+});
+test("one bent finger does not reject an open palm, two do", () => {
+  const hand = palm();
+  hand[20].y = .43;
+  assert.equal(isOpenPalm(hand), true);
+  hand[16].y = .43;
+  assert.equal(isOpenPalm(hand), false);
+});
+test("consecutive swipes do not require lowering or hiding the hand", () => {
+  const engine = new GestureEngine();
+  engine.update([], [palm()], 0, false);
+  assert.equal(engine.update([], [palm(.7)], 500, false).gesture, "next");
+  assert.equal(engine.update([], [palm(.4)], 1000, false).gesture, undefined);
+  engine.update([], [palm(.7)], 1250, false);
+  assert.equal(engine.update([], [palm(.4)], 1600, false).gesture, "previous");
+});
+test("relaxing fingers re-arms hold without showing shoulders", () => {
+  const engine = new GestureEngine();
+  engine.update([], [palm()], 0, false);
+  assert.equal(engine.update([], [palm()], 1500, false).gesture, "toggle");
+  engine.update([], [palm(.4, .4, false)], 2300, true);
+  engine.update([], [palm(.4, .4, false)], 2700, true);
+  engine.update([], [palm()], 2800, true);
+  assert.equal(engine.update([], [palm()], 4300, true).gesture, "toggle");
+});
+test("small hands use their own scale rather than shoulder width", () => {
+  const small = (x: number) => palm().map(p => ({x: x + (p.x - .4) * .5, y: .4 + (p.y - .4) * .5}));
+  const engine = new GestureEngine();
+  engine.update([], [small(.4)], 0, false);
+  assert.equal(engine.update([], [small(.5)], 500, false).gesture, "next");
 });
 test("incomplete and diagonal attempts produce specific correction feedback", () => {
   const engine = new GestureEngine();
@@ -92,7 +121,7 @@ test("tracking loss clears the gesture and reports framing correction", () => {
   const engine = new GestureEngine();
   engine.update(pose, [palm()], 0, false);
   engine.update([], [], 300, false);
-  assert.equal(engine.update([], [], 1500, false).code, "frame");
+  assert.equal(engine.update([], [], 1500, false).code, "lost-hand");
   assert.equal(
     engine.update(pose, [palm(0.7)], 1600, false).gesture,
     undefined,

@@ -14,6 +14,7 @@ export function SlideView({
     );
   return (
     <article className={`slide-surface demo-slide ${small ? "small" : ""}`}>
+      <img className="demo-slide-art" src="/images/pitch-companion.png" alt="" aria-hidden="true" />
       <span className="slide-eyebrow">{slide.eyebrow}</span>
       <h1>{slide.title}</h1>
       <p>{slide.body}</p>

@@ -18,6 +18,7 @@ export type LiveFrame = {
   poseWorld?: Point[];
   handWorlds?: Point[][];
   handLabels?: string[];
+  handScores?: number[];
 };
 export type LiveCommand = {
   type: "command";
@@ -103,6 +104,12 @@ export function parseFrame(message: Record<string, unknown>): LiveFrame | null {
     )
       return null;
     frame.handLabels = labels as string[];
+  }
+  if (message.handScores !== undefined) {
+    const scores = message.handScores;
+    if (!Array.isArray(scores) || scores.length > 2 ||
+        !scores.every(score => finite(score) && score >= 0 && score <= 1)) return null;
+    frame.handScores = scores as number[];
   }
   return frame;
 }

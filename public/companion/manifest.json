@@ -1,0 +1,227 @@
+[
+  {
+    "source_clip": 1,
+    "name": "success",
+    "duration": 4,
+    "size": [
+      704,
+      512
+    ],
+    "valid_source_frames": 96,
+    "discarded_tail_from_seconds": null,
+    "first_bounds": [
+      130,
+      110,
+      574,
+      430
+    ],
+    "last_bounds": [
+      130,
+      110,
+      574,
+      430
+    ],
+    "webm_bytes": 490700,
+    "webp_bytes": 661976
+  },
+  {
+    "source_clip": 2,
+    "name": "open-palm",
+    "duration": 4,
+    "size": [
+      704,
+      512
+    ],
+    "valid_source_frames": 96,
+    "discarded_tail_from_seconds": null,
+    "first_bounds": [
+      135,
+      110,
+      569,
+      430
+    ],
+    "last_bounds": [
+      146,
+      118,
+      557,
+      421
+    ],
+    "webm_bytes": 393969,
+    "webp_bytes": 647080
+  },
+  {
+    "source_clip": 3,
+    "name": "previous",
+    "duration": 4,
+    "size": [
+      704,
+      512
+    ],
+    "valid_source_frames": 96,
+    "discarded_tail_from_seconds": null,
+    "first_bounds": [
+      130,
+      110,
+      574,
+      430
+    ],
+    "last_bounds": [
+      130,
+      109,
+      574,
+      430
+    ],
+    "webm_bytes": 441758,
+    "webp_bytes": 640142
+  },
+  {
+    "source_clip": 4,
+    "name": "hold",
+    "duration": 4,
+    "size": [
+      704,
+      512
+    ],
+    "valid_source_frames": 96,
+    "discarded_tail_from_seconds": null,
+    "first_bounds": [
+      130,
+      110,
+      574,
+      430
+    ],
+    "last_bounds": [
+      130,
+      110,
+      574,
+      430
+    ],
+    "webm_bytes": 422169,
+    "webp_bytes": 691130
+  },
+  {
+    "source_clip": 5,
+    "name": "hello",
+    "duration": 4,
+    "size": [
+      704,
+      512
+    ],
+    "valid_source_frames": 96,
+    "discarded_tail_from_seconds": null,
+    "first_bounds": [
+      131,
+      110,
+      573,
+      430
+    ],
+    "last_bounds": [
+      131,
+      110,
+      573,
+      430
+    ],
+    "webm_bytes": 473440,
+    "webp_bytes": 698320
+  },
+  {
+    "source_clip": 6,
+    "name": "idle",
+    "duration": 4,
+    "size": [
+      704,
+      512
+    ],
+    "valid_source_frames": 96,
+    "discarded_tail_from_seconds": null,
+    "first_bounds": [
+      133,
+      110,
+      571,
+      430
+    ],
+    "last_bounds": [
+      133,
+      111,
+      571,
+      430
+    ],
+    "webm_bytes": 540024,
+    "webp_bytes": 670870
+  },
+  {
+    "source_clip": 7,
+    "name": "point",
+    "duration": 4,
+    "size": [
+      704,
+      512
+    ],
+    "valid_source_frames": 80,
+    "discarded_tail_from_seconds": 3.3333333333333335,
+    "first_bounds": [
+      150,
+      110,
+      554,
+      430
+    ],
+    "last_bounds": [
+      150,
+      110,
+      554,
+      430
+    ],
+    "webm_bytes": 309836,
+    "webp_bytes": 545506
+  },
+  {
+    "source_clip": 8,
+    "name": "next",
+    "duration": 4,
+    "size": [
+      704,
+      512
+    ],
+    "valid_source_frames": 96,
+    "discarded_tail_from_seconds": null,
+    "first_bounds": [
+      130,
+      110,
+      574,
+      430
+    ],
+    "last_bounds": [
+      130,
+      110,
+      574,
+      430
+    ],
+    "webm_bytes": 208836,
+    "webp_bytes": 647762
+  },
+  {
+    "source_clip": 9,
+    "name": "invite",
+    "duration": 4,
+    "size": [
+      704,
+      512
+    ],
+    "valid_source_frames": 96,
+    "discarded_tail_from_seconds": null,
+    "first_bounds": [
+      130,
+      110,
+      574,
+      430
+    ],
+    "last_bounds": [
+      130,
+      110,
+      574,
+      430
+    ],
+    "webm_bytes": 468809,
+    "webp_bytes": 723722
+  }
+]

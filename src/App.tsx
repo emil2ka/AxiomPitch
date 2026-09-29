@@ -1,4 +1,6 @@
 import {
+  lazy,
+  Suspense,
   useCallback,
   useEffect,
   useLayoutEffect,
@@ -13,7 +15,6 @@ import {
   CameraOff,
   Check,
   ChevronRight,
-  CircleHelp,
   Clock3,
   FileUp,
   Hand,
@@ -29,13 +30,17 @@ import {
   SlidersHorizontal,
   Square,
   UnlockKeyhole,
-  Waves,
   X,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { Audience } from "./components/Audience";
-import { Avatar } from "./components/Avatar";
-import type { AvatarHandle } from "./components/Avatar";
+import { flushSync } from "react-dom";
+import { Landing, PitchBrand } from "./components/Landing";
+import { PixelCompanion } from "./components/PixelCompanion";
+import "./studio.css";
+import "./speaker-transition.css";
+import "./bridge-controls.css";
+
 import { SlideView } from "./components/SlideView";
 import { useCamera } from "./hooks/useCamera";
 import {
@@ -63,23 +68,13 @@ import type {
   VisionFrame,
 } from "./lib/types";
 
+const RegistrationPage = lazy(() => import("./components/RegistrationPage").then(module => ({ default: module.RegistrationPage })));
+const LearningPage = lazy(() => import("./components/LearningPage").then(module => ({ default: module.LearningPage })));
+const CompanionPreview = lazy(() => import("./components/CompanionPreview").then(module => ({ default: module.CompanionPreview })));
+
 type Stage = "idle" | "running" | "paused" | "finished";
-const steps = [
-  "Проверим кадр",
-  "Следующий слайд",
-  "Предыдущий слайд",
-  "Блокировка жестов",
-  "Всё готово",
-];
-const instructions = [
-  "Встань так, чтобы камера видела голову и оба плеча. Подожди секунду.",
-  "Подними открытую ладонь до плеча и проведи вправо. Затем опусти руку.",
-  "Снова подними открытую ладонь и проведи влево. Затем опусти руку.",
-  "Подними открытую ладонь и держи неподвижно 1,5 секунды.",
-  "Три команды проверены. Можно начинать выступление.",
-];
 const correctionNames: Record<string, string> = {
-  frame: "Голова и плечи вне кадра",
+  frame: "Ладонь вне кадра",
   "lost-hand": "Ладонь потерялась в движении",
   palm: "Ладонь не раскрыта",
   edge: "Рука у края кадра",
@@ -117,9 +112,6 @@ function Presenter() {
     kind: "idle",
     message: "Включи камеру, чтобы оживить аватара",
   });
-  const [tutorial, setTutorial] = useState(0);
-  const [tutorialVisible, setTutorialVisible] = useState(true);
-  const [calibration, setCalibration] = useState(0);
   const [duration, setDuration] = useState(0);
   const [target, setTarget] = useState(5);
   const [result, setResult] = useState<SessionResult | null>(null);
@@ -165,7 +157,6 @@ function Presenter() {
   const external = bridgeOnline && isExternal(slideTarget);
   const bridge = useRef<BridgeClient | null>(null);
   const uploadToken = useRef(0);
-  const avatar = useRef<AvatarHandle>(null);
   const engine = useRef(new GestureEngine());
   const session = useRef<SessionClock | null>(null);
   const sessionMeta = useRef<{ id: string; startedAt: string }>({
@@ -178,15 +169,12 @@ function Presenter() {
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
   const historyDialogRef = useRef<HTMLDialogElement>(null);
-  const calibrationStart = useRef<number | null>(null);
   const successUntil = useRef(0);
   const correctionLast = useRef<Record<string, number>>({});
   const current = useRef({
     slides,
     index,
     locked,
-    tutorial,
-    tutorialVisible,
     stage,
     mode,
     external,
@@ -196,13 +184,11 @@ function Presenter() {
       slides,
       index,
       locked,
-      tutorial,
-      tutorialVisible,
-      stage,
+          stage,
       mode,
       external,
     };
-  }, [slides, index, locked, tutorial, tutorialVisible, stage, mode, external]);
+  }, [slides, index, locked, stage, mode, external]);
   const reducedMotion = useReducedMotion();
 
   const goTo = useCallback((next: number) => {
@@ -261,51 +247,10 @@ function Presenter() {
 
   const onFrame = useCallback(
     (frame: VisionFrame) => {
-      avatar.current?.draw(frame);
       // The notch on the audience screen mirrors the same pose, never the video.
       bridge.current?.publishFrame(frame);
       const state = current.current;
-      if (state.tutorialVisible && state.tutorial === 0) {
-        const pose = frame.pose;
-        const valid =
-          pose.length > 12 &&
-          (pose[11].visibility ?? 0) > 0.6 &&
-          (pose[12].visibility ?? 0) > 0.6 &&
-          pose[0].y > 0.04 &&
-          pose[0].y < 0.65 &&
-          pose[11].x > 0.06 &&
-          pose[11].x < 0.94 &&
-          pose[12].x > 0.06 &&
-          pose[12].x < 0.94;
-        if (valid) {
-          calibrationStart.current ??= frame.time;
-          const p = Math.min(1, (frame.time - calibrationStart.current) / 1400);
-          setCalibration(p);
-          setFeedback({
-            kind: "progress",
-            message: "Кадр хороший · держись на месте",
-            progress: p,
-          });
-          if (p === 1) {
-            setTutorial(1);
-            current.current.tutorial = 1;
-            engine.current.reset();
-            setFeedback({
-              kind: "success",
-              message: "Кадр готов · попробуй движение вправо",
-            });
-            successUntil.current = frame.time + 1000;
-          }
-        } else {
-          calibrationStart.current = null;
-          setCalibration(0);
-          setFeedback({
-            kind: "idle",
-            message: "Покажи голову и оба плеча · отойди немного назад",
-          });
-        }
-        return;
-      }
+      if (state.stage !== "running") return;
       const nextFeedback = engine.current.update(
         frame.pose,
         frame.hands,
@@ -314,27 +259,12 @@ function Presenter() {
       );
       if (nextFeedback.kind === "success" && nextFeedback.gesture) {
         const gesture = nextFeedback.gesture;
-        if (state.tutorialVisible && state.tutorial > 0 && state.tutorial < 4) {
-          const expected = (["next", "previous", "toggle"] as Gesture[])[
-            state.tutorial - 1
-          ];
-          if (gesture !== expected) {
-            setFeedback({
-              kind: "idle",
-              message: `Сейчас попробуй: ${steps[state.tutorial].toLowerCase()}`,
-            });
-            return;
-          }
-          setTutorial(state.tutorial + 1);
-          current.current.tutorial = state.tutorial + 1;
-        }
         if (gesture === "toggle") {
           // Toggle only locks gestures here; it is never sent to the slide app.
-          applyLock(!state.locked);
-          nextFeedback.message = state.locked
-            ? "Жесты включены"
-            : "Жесты заблокированы";
-        } else if (state.stage !== "finished" && state.stage !== "paused") {
+          const nextLocked = !state.locked;
+          applyLock(nextLocked);
+          nextFeedback.message = nextLocked ? "Жесты заблокированы" : "Жесты включены";
+        } else {
           const next = state.index + (gesture === "next" ? 1 : -1);
           if (state.external && bridge.current?.publishCommand(gesture, false))
             nextFeedback.message =
@@ -346,14 +276,9 @@ function Presenter() {
             goTo(next);
             bridge.current?.publishCommand(gesture, false);
           }
-        } else
-          nextFeedback.message =
-            state.stage === "paused"
-              ? "Выступление на паузе"
-              : "Выступление завершено";
+        }
         if (state.stage === "running" && session.current)
           session.current.commands[gesture]++;
-        avatar.current?.react(gesture);
         setPulse({ id: Date.now(), gesture });
         successUntil.current = frame.time + 1200;
         setFeedback(nextFeedback);
@@ -373,7 +298,6 @@ function Presenter() {
       if (frame.time > successUntil.current)
         setFeedback(
           state.mode === "live" &&
-            !state.tutorialVisible &&
             nextFeedback.kind === "idle"
             ? {
                 ...nextFeedback,
@@ -395,9 +319,6 @@ function Presenter() {
     stop: cameraStop,
   } = useCamera(onFrame);
 
-  useEffect(() => {
-    if (cameraStatus !== "ready") avatar.current?.clear();
-  }, [cameraStatus]);
   useEffect(() => {
     engine.current.setSensitivity(sensitivity);
   }, [sensitivity]);
@@ -447,7 +368,11 @@ function Presenter() {
         setBridgeOnline(online);
         if (online) refreshTargets();
       },
-      hello: (hello) => setOverlayVisible(hello.overlay.visible),
+      hello: (hello) => {
+        setOverlayVisible(hello.overlay.visible);
+        // A reconnect must preserve the studio lock, including manual changes.
+        client.publishCommand("toggle", current.current.locked);
+      },
       target: applyTarget,
       overlay: (state) => setOverlayVisible(state.visible),
       // POST /api/control on the PitchFlow deck: step as the arrows would.
@@ -616,17 +541,21 @@ function Presenter() {
     current.current.stage = "running";
     applyLock(false);
     engine.current.reset();
+    bridge.current?.publishCommand("toggle", false);
     channel.current?.postMessage({ type: "slide", slide: slides[index] });
-    setTutorialVisible(false);
   };
   const pauseSession = () => {
     if (stage === "running") {
       session.current?.pause(performance.now());
       setDuration(session.current?.duration ?? 0);
       setStage("paused");
+      current.current.stage = "paused";
+      engine.current.reset();
     } else {
       session.current?.resume(performance.now());
       setStage("running");
+      current.current.stage = "running";
+      engine.current.reset();
     }
   };
   const finishSession = () => {
@@ -661,12 +590,7 @@ function Presenter() {
       );
     channel.current?.postMessage({ type: "end" });
   };
-  const restartTutorial = () => {
-    setTutorialVisible(true);
-    setTutorial(0);
-    current.current.tutorial = 0;
-    setCalibration(0);
-    calibrationStart.current = null;
+  const resetGestures = () => {
     engine.current.reset();
     applyLock(false);
   };
@@ -694,82 +618,10 @@ function Presenter() {
     : 0;
 
   return (
-    <main className="workspace">
-      <video
-        ref={videoRef}
-        className="camera-source"
-        playsInline
-        muted
-        aria-hidden="true"
-      />
-      <div
-        className={`notch ${cameraStatus === "ready" ? "is-live" : ""} ${locked ? "is-locked" : ""}`}
-      >
-        <div className="notch-content">
-          <Avatar ref={avatar} locked={locked} />
-          {cameraStatus !== "ready" && (
-            <div className="notch-caption">
-              {cameraStatus === "loading" ? (
-                <LoaderCircle className="spin" size={11} />
-              ) : (
-                <span className="notch-caption-dot" />
-              )}
-              <span>
-                {cameraStatus === "loading"
-                  ? "Подключаю камеру"
-                  : "Камера выключена"}
-              </span>
-            </div>
-          )}
-          {cameraStatus === "ready" && (
-            <span className="notch-lock">
-              {locked ? <LockKeyhole size={13} /> : <UnlockKeyhole size={13} />}
-            </span>
-          )}
-          {pulse && !reducedMotion && (
-            <motion.div
-              key={pulse.id}
-              className={`notch-pulse ${pulse.gesture}`}
-              initial={{
-                opacity: 0.9,
-                x:
-                  pulse.gesture === "next"
-                    ? -110
-                    : pulse.gesture === "previous"
-                      ? 110
-                      : 0,
-                scaleX: pulse.gesture === "toggle" ? 0.3 : 1,
-              }}
-              animate={{
-                opacity: 0,
-                x:
-                  pulse.gesture === "next"
-                    ? 110
-                    : pulse.gesture === "previous"
-                      ? -110
-                      : 0,
-                scaleX: 1,
-              }}
-              transition={{ duration: 0.38 }}
-            />
-          )}
-        </div>
-        {cameraStatus === "ready" && (
-          <div className={`notch-feedback ${feedback.kind}`} aria-live="polite">
-            <span>{feedback.message}</span>
-            {feedback.kind === "progress" && (
-              <div className="notch-progress">
-                <span style={{ width: `${(feedback.progress ?? 0) * 100}%` }} />
-              </div>
-            )}
-          </div>
-        )}
-      </div>
+    <main className={`workspace studio studio-${stage}`}>
       <header className="app-header">
-        <a className="brand" href="/" aria-label="AxiomPitch">
-          <Waves size={25} aria-hidden="true" />
-          Axiom<span>Pitch</span>
-        </a>
+        <div className="studio-brand-group"><a href="/" aria-label="AxiomPitch — на главную"><PitchBrand /></a><span className="studio-header-divider" /><span className="studio-breadcrumb">Студия</span></div>
+        <div className={`studio-status ${stage}`}><span />{stage === "running" ? "Ты в эфире" : stage === "paused" ? "На паузе" : "Твоё пространство"}</div>
         <div className="header-actions">
           <button
             className="icon-button"
@@ -782,28 +634,18 @@ function Presenter() {
           <button
             className={`button secondary ${audienceOpen || overlayVisible ? "selected" : ""}`}
             onClick={openAudience}
+            aria-label={external ? overlayVisible ? "Скрыть чёлку" : "Показать чёлку" : audienceOpen ? "Экран открыт" : "Экран аудитории"}
           >
             <Monitor size={17} />
-            <span>
-              {audienceOpen || overlayVisible
-                ? "Экран открыт"
-                : "Экран аудитории"}
-            </span>
+            <span>{external ? overlayVisible ? "Скрыть чёлку" : "Показать чёлку" : audienceOpen ? "Экран открыт" : "Экран аудитории"}</span>
           </button>
         </div>
       </header>
       <div className="workspace-heading">
-        <div>
-          <div className="section-eyebrow">
-            ТВОЁ ПРОСТРАНСТВО ДЛЯ ВЫСТУПЛЕНИЙ
-          </div>
-          <h2>{deckName}</h2>
-          <p>
-            {slides.length} слайдов <span>·</span>{" "}
-            {slides[0]?.image
-              ? "Твоя презентация"
-              : "Демонстрационная презентация"}
-          </p>
+        <div className="studio-title">
+          <span className="section-eyebrow">ТВОЯ ПРЕЗЕНТАЦИЯ</span>
+          <h1>{deckName}</h1>
+          <p>{slides.length} слайдов <span>·</span> {slides[0]?.image ? "Твой PDF" : "Демо-презентация"}</p>
         </div>
         <div className="deck-actions">
           <input
@@ -840,17 +682,14 @@ function Presenter() {
         </div>
       )}
       <div className="workspace-grid">
+        <nav className="studio-filmstrip" aria-label="Все слайды презентации">
+          <span className="studio-rail-label">СЛАЙДЫ <span>{String(slides.length).padStart(2, "0")}</span></span>
+          <div className="studio-thumbnails">{slides.map((slide, i) => <button key={slide.id} className={`studio-thumbnail ${i === index ? "active" : ""}`} disabled={external} onClick={() => goTo(i)} aria-label={`Перейти к слайду ${i + 1}: ${slide.title.replace(/\n/g, " ")}`} aria-current={i === index ? "step" : undefined}><SlideView slide={slide} small /><span className="studio-thumbnail-caption"><span>{String(i + 1).padStart(2, "0")}</span>{i === index && <span className="studio-thumbnail-current" />}</span></button>)}</div>
+        </nav>
         <section className="stage-panel" aria-label="Презентация">
           <div className="stage-label">
-            <span>ТЕКУЩИЙ СЛАЙД</span>
-            <span
-              className="slide-counter"
-              title={
-                external && estimated
-                  ? "Приложение не сообщает номер слайда: позиция оценочная"
-                  : undefined
-              }
-            >
+            <span className="studio-stage-caption"><span />НА СЦЕНЕ</span>
+            <span className="slide-counter" title={external && estimated ? "Оценочный номер: приложение не сообщает позицию" : undefined}>
               {external && estimated ? "≈ " : ""}
               {String(index + 1).padStart(2, "0")}{" "}
               <span>/ {String(slides.length).padStart(2, "0")}</span>
@@ -888,9 +727,7 @@ function Presenter() {
                         className={`slide-dot ${i === index ? "active" : ""}`}
                         aria-label={`Слайд ${i + 1}`}
                         aria-current={i === index ? "step" : undefined}
-                        // An external app cannot jump; it only steps.
-                        disabled={external}
-                        onClick={() => goTo(i)}
+                        disabled={external} onClick={() => goTo(i)}
                       />
                     );
                   })}
@@ -910,7 +747,7 @@ function Presenter() {
             <div className="notes-panel">
               <label htmlFor="speaker-notes">
                 <SlidersHorizontal size={16} />
-                Заметки спикера
+                Твоя главная мысль
               </label>
               <textarea
                 id="speaker-notes"
@@ -923,7 +760,10 @@ function Presenter() {
             <div className="next-slide-panel">
               <span className="panel-caption">ДАЛЕЕ</span>
               {slides[index + 1] ? (
-                <button className="next-preview" onClick={() => step("next")}>
+                <button
+                  className="next-preview"
+                  onClick={() => step("next")}
+                >
                   <SlideView slide={slides[index + 1]} small />
                   <span>
                     {slides[index + 1].title.replace(/\n/g, " ")}
@@ -940,99 +780,8 @@ function Presenter() {
           </div>
         </section>
         <aside className="control-panel">
-          <section className="timer-panel">
-            <div className="panel-heading">
-              <Clock3 size={17} />
-              <span>Время выступления</span>
-              <span className={`session-state ${stage}`}>
-                {stage === "running"
-                  ? "ИДЁТ"
-                  : stage === "paused"
-                    ? "ПАУЗА"
-                    : stage === "finished"
-                      ? "ИТОГИ"
-                      : "ГОТОВ"}
-              </span>
-            </div>
-            <div
-              className={`timer ${duration > target * 60000 ? "overtime" : ""}`}
-            >
-              {formatTime(duration)}
-              <span>/ {String(target).padStart(2, "0")}:00</span>
-            </div>
-            <div className="timer-track">
-              <span style={{ width: `${progress * 100}%` }} />
-            </div>
-            <div className="timer-settings">
-              <label htmlFor="target-time">Лимит, минут</label>
-              <input
-                id="target-time"
-                type="number"
-                min={1}
-                max={120}
-                value={target}
-                disabled={isSession}
-                onChange={(event) =>
-                  setTarget(
-                    Math.max(1, Math.min(120, Number(event.target.value) || 1)),
-                  )
-                }
-              />
-            </div>
-            <div className="mode-switch" aria-label="Режим выступления">
-              <button
-                aria-pressed={mode === "rehearsal"}
-                disabled={isSession}
-                className={mode === "rehearsal" ? "active" : ""}
-                onClick={() => setMode("rehearsal")}
-              >
-                Репетиция
-              </button>
-              <button
-                aria-pressed={mode === "live"}
-                disabled={isSession}
-                className={mode === "live" ? "active" : ""}
-                onClick={() => setMode("live")}
-              >
-                Выступление
-              </button>
-            </div>
-            {isSession ? (
-              <div className="session-buttons">
-                <button className="button secondary" onClick={pauseSession}>
-                  {stage === "running" ? (
-                    <Pause size={17} />
-                  ) : (
-                    <Play size={17} />
-                  )}
-                  {stage === "running" ? "Пауза" : "Продолжить"}
-                </button>
-                <button className="button primary" onClick={finishSession}>
-                  <Square size={14} />
-                  Завершить
-                </button>
-              </div>
-            ) : (
-              <button
-                className="button primary full"
-                onClick={startSession}
-                disabled={pdfProgress !== null}
-              >
-                <Play size={17} />
-                {stage === "finished" ? "Начать снова" : "Начать выступление"}
-              </button>
-            )}
-            {stage === "finished" && (
-              <button
-                className="text-button"
-                onClick={() => setResultsOpen(true)}
-              >
-                Посмотреть итоги <ChevronRight size={15} />
-              </button>
-            )}
-          </section>
           {apiEnabled && (
-            <section className="target-panel">
+            <section className="target-panel bridge-integration">
               <div className="panel-heading">
                 <Presentation size={17} />
                 <span>Где листать слайды</span>
@@ -1112,161 +861,121 @@ function Presenter() {
               )}
             </section>
           )}
+
           <section className="camera-panel">
-            <div className="panel-heading">
-              <Camera size={17} />
-              <span>Камера и жесты</span>
-              {cameraStatus === "ready" && (
-                <span className="camera-fps">{cameraFps} FPS</span>
-              )}
+            <div className="panel-heading"><span className="studio-assistant-dot" /><span>Твой кадр</span><small>{cameraStatus === "ready" ? `${cameraFps} FPS` : "КАМЕРА"}</small></div>
+            <div className={`studio-camera-preview ${cameraStatus === "ready" ? "is-live" : ""}`}>
+              <video ref={videoRef} playsInline muted aria-hidden={cameraStatus !== "ready"} aria-label="Зеркальное превью камеры" />
+              {cameraStatus !== "ready" && <div className="studio-camera-placeholder"><Camera size={24} strokeWidth={1} /><span>{cameraStatus === "loading" ? "Подключаем камеру…" : "Место для тебя"}</span></div>}
+              <span className="studio-camera-corners" aria-hidden="true" />
+              {cameraStatus === "ready" && <span className="studio-camera-live"><i />{locked ? "Жесты на паузе" : stage === "running" ? "Управление активно" : "Камера готова"}</span>}
             </div>
-            <p className="camera-description">
-              3D-аватар в чёлке повторит движения головы и ладоней. Камера
-              обрабатывается на устройстве.
-            </p>
-            <button
-              className={`button ${cameraStatus === "ready" ? "secondary" : "primary"} full`}
-              onClick={() => {
-                if (cameraStatus === "ready" || cameraStatus === "loading")
-                  cameraStop();
-                else {
-                  restartTutorial();
-                  void cameraStart();
-                }
-              }}
-            >
-              {cameraStatus === "loading" ? (
-                <LoaderCircle className="spin" size={17} />
-              ) : cameraStatus === "ready" ? (
-                <CameraOff size={17} />
-              ) : (
-                <Camera size={17} />
-              )}
-              {cameraStatus === "loading"
-                ? "Отменить подключение"
-                : cameraStatus === "ready"
-                  ? "Выключить камеру"
-                  : "Включить камеру"}
-            </button>
-            {cameraError && (
-              <p className="camera-error" role="alert">
-                {cameraError}
-              </p>
-            )}
-            {cameraStatus === "ready" && (
-              <>
-                <div className="camera-live-label">
-                  <span className="status-light" />
-                  Камера подключена
-                  <button
-                    className="icon-button mini"
-                    aria-label="Повторить обучение"
-                    onClick={restartTutorial}
-                  >
-                    <RotateCcw size={14} />
-                  </button>
-                </div>
-                {tutorialVisible && (
-                  <div className="tutorial">
-                    <div className="tutorial-top">
-                      <span>БЫСТРОЕ ОБУЧЕНИЕ</span>
-                      <span>{Math.min(tutorial + 1, 4)} / 4</span>
-                    </div>
-                    <h3>{steps[tutorial]}</h3>
-                    <p>{instructions[tutorial]}</p>
-                    <div className="tutorial-track">
-                      <span
-                        style={{
-                          width: `${tutorial === 0 ? calibration * 25 : tutorial * 25}%`,
-                        }}
-                      />
-                    </div>
-                    {tutorial === 4 ? (
-                      <button
-                        className="text-button"
-                        onClick={() => {
-                          setTutorialVisible(false);
-                          applyLock(false);
-                          engine.current.reset();
-                        }}
-                      >
-                        <Check size={15} />
-                        Готово
-                      </button>
-                    ) : (
-                      <button
-                        className="text-button muted"
-                        onClick={() => {
-                          setTutorialVisible(false);
-                          engine.current.reset();
-                        }}
-                      >
-                        Пропустить обучение
-                      </button>
-                    )}
-                  </div>
-                )}
-                <label className="sensitivity" htmlFor="sensitivity">
-                  <span>
-                    Размах жеста{" "}
-                    <span>
-                      {sensitivity < 0.8
-                        ? "малый"
-                        : sensitivity > 1
-                          ? "большой"
-                          : "обычный"}
-                    </span>
-                  </span>
-                  <input
-                    id="sensitivity"
-                    type="range"
-                    min={0.55}
-                    max={1.15}
-                    step={0.05}
-                    value={sensitivity}
-                    onChange={(event) =>
-                      setSensitivity(Number(event.target.value))
-                    }
-                  />
-                </label>
-                <button
-                  className="button secondary full"
-                  onClick={() => {
-                    applyLock(!locked);
-                    engine.current.reset();
-                  }}
-                >
-                  {locked ? (
-                    <UnlockKeyhole size={16} />
-                  ) : (
-                    <LockKeyhole size={16} />
-                  )}
-                  {locked ? "Включить жесты" : "Заблокировать жесты"}
-                </button>
-              </>
-            )}
-            <div className="gesture-guide">
-              <div>
-                <ArrowRight size={16} />
-                <span>Ладонь вправо</span>
-                <span>Далее</span>
-              </div>
-              <div>
-                <ArrowLeft size={16} />
-                <span>Ладонь влево</span>
-                <span>Назад</span>
-              </div>
-              <div>
-                <Hand size={16} />
-                <span>Ладонь 1,5 сек.</span>
-                <span>Блок</span>
-              </div>
-            </div>
-            <p className="gesture-tip">
-              <CircleHelp size={14} />
-              Подними руку до плеча. После команды опусти её.
-            </p>
+            <button className="button secondary full" onClick={() => {
+              if (cameraStatus === "ready" || cameraStatus === "loading") cameraStop();
+              else { resetGestures(); void cameraStart(); }
+            }}>{cameraStatus === "loading" ? <LoaderCircle className="spin" size={14} /> : cameraStatus === "ready" ? <CameraOff size={14} /> : <Camera size={14} />}{cameraStatus === "loading" ? "Отменить" : cameraStatus === "ready" ? "Выключить камеру" : "Включить камеру"}</button>
+            {cameraError && <p className="camera-error" role="alert">{cameraError}</p>}
+            <p className="studio-native-status"><i className={bridgeOnline ? "connected" : ""} />{bridgeOnline ? overlayVisible ? "Показ чёлки включён" : "Мост подключён" : apiEnabled ? "Мост не подключён" : "Локальная студия"}</p>
+            {stage === "running" && cameraStatus === "ready" && <p className={`studio-live-feedback ${feedback.kind}`} role="status">{feedback.message}</p>}
+            <details className="studio-gesture-details"><summary>Настройки жестов <SlidersHorizontal size={13} /></summary>
+              <label className="sensitivity" htmlFor="sensitivity"><span>Размах жеста <span>{sensitivity < .8 ? "малый" : sensitivity > 1 ? "большой" : "обычный"}</span></span><input id="sensitivity" type="range" min={.55} max={1.15} step={.05} value={sensitivity} onChange={event => setSensitivity(Number(event.target.value))} /></label>
+              <button className="text-button" onClick={() => { applyLock(!locked); engine.current.reset(); }}>{locked ? <UnlockKeyhole size={13} /> : <LockKeyhole size={13} />}{locked ? "Включить жесты" : "Заблокировать жесты"}</button>
+              <div className="gesture-guide"><div><ArrowRight size={13} /><span>Ладонь вправо</span><span>Далее</span></div><div><ArrowLeft size={13} /><span>Ладонь влево</span><span>Назад</span></div><div><Hand size={13} /><span>Удержать 1,5 сек.</span><span>Блок</span></div></div>
+              <a className="studio-learn-link" href="/learn" onClick={event => { if (isSession) { event.preventDefault(); setNotice("Сначала заверши выступление, чтобы перейти к обучению."); } }}>Пройти обучение <ChevronRight size={12} /></a>
+            </details>
           </section>
+          <section className="timer-panel">
+            <div className="panel-heading">
+              <Clock3 size={17} />
+              <span>Твой ритм</span>
+              <span className={`session-state ${stage}`}>
+                {stage === "running"
+                  ? "ИДЁТ"
+                  : stage === "paused"
+                    ? "ПАУЗА"
+                    : stage === "finished"
+                      ? "ИТОГИ"
+                      : "ГОТОВ"}
+              </span>
+            </div>
+            <div
+              className={`timer ${duration > target * 60000 ? "overtime" : ""}`}
+            >
+              {formatTime(duration)}
+              <span>/ {String(target).padStart(2, "0")}:00</span>
+            </div>
+            <div className="timer-track">
+              <span style={{ width: `${progress * 100}%` }} />
+            </div>
+            <div className="timer-settings">
+              <label htmlFor="target-time">Лимит, минут</label>
+              <input
+                id="target-time"
+                type="number"
+                min={1}
+                max={120}
+                value={target}
+                disabled={isSession}
+                onChange={(event) =>
+                  setTarget(
+                    Math.max(1, Math.min(120, Number(event.target.value) || 1)),
+                  )
+                }
+              />
+            </div>
+            <div className="mode-switch" aria-label="Режим выступления">
+              <button
+                aria-pressed={mode === "rehearsal"}
+                disabled={isSession}
+                className={mode === "rehearsal" ? "active" : ""}
+                onClick={() => setMode("rehearsal")}
+              >
+                Репетиция
+              </button>
+              <button
+                aria-pressed={mode === "live"}
+                disabled={isSession}
+                className={mode === "live" ? "active" : ""}
+                onClick={() => setMode("live")}
+              >
+                Выступление
+              </button>
+            </div>
+            {isSession ? (
+              <div className="session-buttons">
+                <button className="button secondary" onClick={pauseSession}>
+                  {stage === "running" ? (
+                    <Pause size={17} />
+                  ) : (
+                    <Play size={17} />
+                  )}
+                  {stage === "running" ? "Пауза" : "Продолжить"}
+                </button>
+                <button className="button primary" onClick={finishSession}>
+                  <Square size={14} />
+                  Завершить
+                </button>
+              </div>
+            ) : (
+              <button
+                className="button primary full"
+                onClick={startSession}
+                disabled={pdfProgress !== null}
+              >
+                <Play size={17} />
+                {stage === "finished" ? "Попробовать ещё раз" : mode === "rehearsal" ? "Начать репетицию" : "Начать выступление"}
+              </button>
+            )}
+            {stage === "finished" && (
+              <button
+                className="text-button"
+                onClick={() => setResultsOpen(true)}
+              >
+                Посмотреть итоги <ChevronRight size={15} />
+              </button>
+            )}
+          </section>
+          <div className="studio-coach"><PixelCompanion action={stage === "finished" ? "success" : pulse ? pulse.gesture === "toggle" ? "hold" : pulse.gesture : "idle"} replay={pulse?.id ?? 0} /><p>{stage === "running" ? locked ? "Говори свободно. Слайды подождут." : "Рассказывай. Я помогу с движением." : stage === "paused" ? "Выдохни. Продолжим, когда будешь готов." : stage === "finished" ? "Твоя история рассказана." : "Твоя история — в центре. Начнём, когда будешь готов."}</p></div>
         </aside>
       </div>
       <footer className="workspace-footer">
@@ -1275,11 +984,9 @@ function Presenter() {
           Камера и PDF остаются на устройстве
         </span>
         <span>
-          {overlayVisible
-            ? "Чёлка видна и на экране аудитории"
-            : cameraStatus === "ready"
-              ? "Чёлка видна только на экране спикера"
-              : "Можно начать с демо-слайдов или своего PDF"}
+          {cameraStatus === "ready"
+            ? overlayVisible ? "Зрители видят презентацию и чёлку" : "Зрители видят только презентацию"
+            : "Можно начать с демо-слайдов или своего PDF"}
         </span>
       </footer>
       <dialog
@@ -1436,9 +1143,56 @@ function Presenter() {
 }
 
 export default function App() {
-  return new URLSearchParams(location.search).has("audience") ? (
+  const [path, setPath] = useState(location.pathname);
+  const [handoff, setHandoff] = useState<"leaving" | "arriving" | "native" | null>(null);
+  const transitioning = useRef(false);
+  const timers = useRef<ReturnType<typeof setTimeout>[]>([]);
+  const reduced = useReducedMotion();
+  useEffect(() => {
+    const pendingTimers = timers.current;
+    const syncPath = () => setPath(location.pathname);
+    window.addEventListener("popstate", syncPath);
+    return () => { window.removeEventListener("popstate", syncPath); pendingTimers.forEach(clearTimeout); };
+  }, []);
+  const enterStudio = useCallback(() => {
+    if (transitioning.current || location.pathname !== "/learn") return;
+    transitioning.current = true;
+    const navigate = () => {
+      history.pushState(null, "", "/studio");
+      flushSync(() => setPath("/studio"));
+      window.scrollTo(0, 0);
+    };
+    const finish = () => { setHandoff(null); transitioning.current = false; };
+    if (reduced) { navigate(); finish(); return; }
+    if (document.startViewTransition) {
+      flushSync(() => setHandoff("native"));
+      document.documentElement.classList.add("speaker-handoff");
+      const transition = document.startViewTransition(navigate);
+      void transition.finished.catch(() => {}).finally(() => {
+        document.documentElement.classList.remove("speaker-handoff");
+        finish();
+      });
+    } else {
+      setHandoff("leaving");
+      timers.current.push(setTimeout(() => {
+        navigate();
+        setHandoff("arriving");
+        timers.current.push(setTimeout(finish, 700));
+      }, 340));
+    }
+  }, [reduced]);
+  const page = new URLSearchParams(location.search).has("audience") ? (
     <Audience />
-  ) : (
+  ) : path === "/register" ? (
+    <Suspense fallback={<div className="companion-loading">Готовим знакомство…</div>}><RegistrationPage /></Suspense>
+  ) : path === "/learn" ? (
+    <Suspense fallback={<div className="companion-loading">Готовим обучение…</div>}><LearningPage onEnterStudio={enterStudio} /></Suspense>
+  ) : path === "/companion" ? (
+    <Suspense fallback={<div className="companion-loading">Загружаем персонажа…</div>}><CompanionPreview /></Suspense>
+  ) : path === "/studio" ? (
     <Presenter />
+  ) : (
+    <Landing />
   );
+  return <div className="app-route" data-speaker-handoff={handoff ?? undefined}>{page}</div>;
 }

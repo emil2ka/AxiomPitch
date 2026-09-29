@@ -1,0 +1,45 @@
+/* Original bridge controls. A dedicated design for this panel is deferred. */
+.studio .bridge-integration { background: #171a21; border: 1px solid #292e38; border-radius: 13px; padding: 20px; min-width: 0; }
+.studio .bridge-integration .panel-heading { font-size: 14px; color: #c3ccdb; }
+.studio .bridge-integration .panel-heading svg { width: 17px; color: #8695ab; }
+.studio .bridge-integration .button { border-radius: 8px; background: #202632; color: #d4dfef; border: 1px solid #343f52; padding: 10px 16px; font-size: 13px; }
+.studio .bridge-integration .bridge-state {
+  margin-left: auto;
+  color: #7d8b9f;
+  font-size: 10px;
+  letter-spacing: 0.8px;
+}
+.studio .bridge-integration .bridge-state.online {
+  color: #9dc0ff;
+}
+.studio .bridge-integration .target-row {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 16px;
+}
+.studio .bridge-integration .target-row select {
+  flex: 1 1 140px;
+  min-width: 0;
+  padding: 8px 10px;
+  border: 1px solid #323b4d;
+  border-radius: 8px;
+  background: #1d2431;
+  color: #bac9e0;
+  font: inherit;
+  font-size: 13px;
+}
+.studio .bridge-integration .target-row .button {
+  flex: 1 1 auto;
+}
+.studio .bridge-integration .target-status {
+  margin: 12px 0 0;
+  font-size: 13px;
+  line-height: 1.5;
+  color: #91a0b6;
+}
+.studio .bridge-integration .target-status.error {
+  color: #e4b187;
+}
+
+@media (max-width: 700px) { .studio .bridge-integration { grid-column: 1 / -1; } }

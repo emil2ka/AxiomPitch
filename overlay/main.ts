@@ -9,7 +9,7 @@ import type { Display } from "electron";
 const pageOrigin = process.env.PITCHFLOW_ORIGIN ?? "http://localhost:5173";
 const bridgeOrigin = process.env.PITCHFLOW_BRIDGE ?? "http://127.0.0.1:8787";
 const pageUrl = `${pageOrigin}/?overlay=1&bridge=${encodeURIComponent(bridgeOrigin)}`;
-const size = { width: 320, height: 96 };
+const size = { width: 220, height: 80 };
 const topMargin = 10;
 
 let win: BrowserWindow | null = null;

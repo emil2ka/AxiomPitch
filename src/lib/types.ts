@@ -15,6 +15,7 @@ export type VisionFrame = {
   poseWorld?: Point[];
   handWorlds?: Point[][];
   handLabels?: string[];
+  handScores?: number[];
   duration: number;
 };
 export type VisionMessage =
