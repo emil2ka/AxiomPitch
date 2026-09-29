@@ -92,7 +92,11 @@ test("Keynote without a running show fails loudly instead of pretending", async 
 test("readState null is reported as unknown, never as an estimated Keynote slide", async () => {
   const target = new FakeTarget("keynote", null);
   const published: TargetStatus[] = [];
-  const bridge = new Bridge([target], (status) => published.push(status), "keynote");
+  const bridge = new Bridge(
+    [target],
+    (status) => published.push(status),
+    "keynote",
+  );
   await bridge.handleCommand("next", false);
   await bridge.handleCommand("next", false);
   assert.equal(target.count("next"), 2);
