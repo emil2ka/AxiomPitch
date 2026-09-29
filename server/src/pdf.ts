@@ -18,7 +18,6 @@ export async function inspectPdf(bytes: Uint8Array) {
   const task = getDocument({
     data: new Uint8Array(bytes),
     verbosity: 0,
-    isEvalSupported: false,
     disableFontFace: true,
     useSystemFonts: false,
   });
