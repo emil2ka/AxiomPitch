@@ -31,3 +31,6 @@ dist-ssr
 # Models and WASM are reproducibly prepared by npm install/build.
 public/vision/
 work/
+
+# Local server storage: SQLite database and uploaded PDFs never go to git.
+server/data/
