@@ -30,23 +30,33 @@ test("design hand-only gestures keep the external bridge lock and step exactly o
     }
     return feedback;
   }
-  await observe(.4, 0);
-  assert.equal((await observe(.7, 500)).gesture, "next");
-  await observe(.7, 1300);
-  assert.equal((await observe(.4, 1800)).gesture, "previous");
+  /** The palm moving between two points, one camera frame every 33 ms. */
+  async function sweep(from: number, to: number, start: number, duration: number, open = true) {
+    const seen: string[] = [];
+    for (let t = 0; ; t = Math.min(duration, t + 33)) {
+      const feedback = await observe(from + (to - from) * (duration ? t / duration : 1), start + t, open);
+      if (feedback.gesture) seen.push(feedback.gesture);
+      if (t === duration) return seen;
+    }
+  }
+  await sweep(.4, .4, 0, 200);
+  assert.deepEqual(await sweep(.4, .7, 200, 300), ["next"]);
+  await sweep(.7, .7, 500, 400);
+  // Bringing the hand back to the centre is not a command.
+  assert.deepEqual(await sweep(.7, .4, 900, 500), []);
+  // A deliberate sweep past the starting point is.
+  assert.deepEqual(await sweep(.4, .15, 1400, 300), ["previous"]);
   assert.equal(target.count("next"), 1);
   assert.equal(target.count("previous"), 1);
-  await observe(.4, 2600);
-  assert.equal((await observe(.4, 4100)).gesture, "toggle");
+  // Relaxed fingers re-arm the hold after the swipes.
+  await sweep(.15, .15, 1700, 400, false);
+  assert.deepEqual(await sweep(.4, .4, 2200, 1600), ["toggle"]);
   assert.equal(bridge.locked, true);
-  await observe(.4, 4900, false);
-  await observe(.4, 5301, false);
-  await observe(.4, 5400);
-  assert.equal((await observe(.7, 5800)).gesture, undefined);
+  await sweep(.4, .4, 3800, 400, false);
+  assert.deepEqual(await sweep(.4, .7, 4300, 300), []);
   assert.equal(target.count("next"), 1);
   engine.reset();
-  await observe(.4, 6000);
-  assert.equal((await observe(.4, 7500)).gesture, "toggle");
+  assert.deepEqual(await sweep(.4, .4, 5000, 1600), ["toggle"]);
   assert.equal(bridge.locked, false);
   assert.equal(target.count("next") + target.count("previous"), 2);
 });
