@@ -145,13 +145,11 @@ export class Store {
       .get() as { total: number };
     return {
       total,
-      items: rows.map(
-        (row): StoredSession => ({
-          ...(JSON.parse(row.result) as SessionResult),
-          presentationId: row.presentation_id,
-          savedAt: row.saved_at,
-        }),
-      ),
+      items: rows.map((row): StoredSession => ({
+        ...(JSON.parse(row.result) as SessionResult),
+        presentationId: row.presentation_id,
+        savedAt: row.saved_at,
+      })),
     };
   }
 
