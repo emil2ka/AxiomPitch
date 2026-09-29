@@ -1,10 +1,6 @@
 /** Apps the bridge can drive. The speaker tab still decides every gesture. */
 export type TargetId =
-  | "pitchflow"
-  | "keynote"
-  | "powerpoint"
-  | "chrome"
-  | "frontmost";
+  "pitchflow" | "keynote" | "powerpoint" | "chrome" | "frontmost";
 export const targetIds: readonly TargetId[] = [
   "pitchflow",
   "keynote",
