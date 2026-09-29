@@ -98,11 +98,27 @@ self.onmessage = async (event: MessageEvent) => {
     return;
   }
   if (event.data.type !== "frame") return;
-  const bitmap = event.data.bitmap as ImageBitmap;
+  const source = event.data.bitmap as ImageBitmap | VideoFrame;
   if (!hand) {
-    bitmap.close();
+    source.close();
     return;
   }
+  // Frames read from the camera track arrive as VideoFrame; MediaPipe gets
+  // the same ImageBitmap input either way.
+  let bitmap: ImageBitmap;
+  if (typeof VideoFrame !== "undefined" && source instanceof VideoFrame) {
+    try {
+      bitmap = await createImageBitmap(source);
+    } catch {
+      // One unreadable frame is a short gap for the tracker, not a failure;
+      // the reply also frees the capture loop for the next frame.
+      const empty: VisionFrame = { type: "frame", time: event.data.time, pose: [], hands: [], duration: 0 };
+      self.postMessage(empty);
+      return;
+    } finally {
+      source.close();
+    }
+  } else bitmap = source as ImageBitmap;
   const started = performance.now();
   frameCount++;
   try {
