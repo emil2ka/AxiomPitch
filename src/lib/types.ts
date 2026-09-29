@@ -16,6 +16,8 @@ export type VisionFrame = {
   handWorlds?: Point[][];
   handLabels?: string[];
   handScores?: number[];
+  /** Frame width / height: normalized x and y are scaled differently. */
+  aspect?: number;
   duration: number;
 };
 export type VisionMessage =
