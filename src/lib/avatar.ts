@@ -131,6 +131,16 @@ export function createAvatarScene(
     const material = skin(0x609ed1, 0.46, 0.24);
     material.sheen = 0.22;
     material.clearcoatRoughness = 0.38;
+    if (ghostHead) {
+      material.wireframe = true;
+      material.color.setHex(0x9ba8b8);
+      material.transparent = true;
+      material.opacity = .48;
+      material.depthWrite = false;
+      material.emissiveIntensity = 0;
+      material.clearcoat = 0;
+      material.sheen = 0;
+    }
     return material;
   };
   const white = new THREE.MeshBasicMaterial({ color: 0xd9e4f2, transparent: true, opacity: 0.72 });
@@ -158,18 +168,33 @@ export function createAvatarScene(
   scene.add(headTilt);
   const head = new THREE.Group();
   headTilt.add(head);
-  const headShell = orb(head, blue, [0.43, 0.315, 0.255], [0, 0, 0]);
   if (ghostHead) {
-    headShell.rotation.z = Math.PI / 2;
-    const outline = new THREE.EllipseCurve(0, 0, .43, .315, 0, Math.PI * 2, false, 0);
-    const points = outline.getPoints(80).slice(0, -1).map(point => new THREE.Vector3(point.x, point.y, .012));
-    const geometry = new THREE.TubeGeometry(new THREE.CatmullRomCurve3(points, true), 80, .0065, 4, true);
-    const material = new THREE.MeshBasicMaterial({ color: 0xa8c4e0, transparent: true, opacity: .48, depthWrite: false });
-    resources.push(geometry, material);
-    const rim = new THREE.Mesh(geometry, material);
-    rim.rotation.z = Math.PI / 2;
-    head.add(rim);
-  }
+    // A hollow globe: latitude rings and meridians, no filled surface inside.
+    headTilt.scale.setScalar(0.62);
+    const material = new THREE.LineBasicMaterial({ color: 0xa5b0be, transparent: true, opacity: .5, depthWrite: false });
+    resources.push(material);
+    const radius = .38;
+    const addRing = (points: THREE.Vector3[]) => {
+      const geometry = new THREE.BufferGeometry().setFromPoints(points);
+      resources.push(geometry);
+      head.add(new THREE.LineLoop(geometry, material));
+    };
+    for (let latitude = -3; latitude <= 3; latitude++) {
+      const angle = latitude * Math.PI / 8;
+      addRing(Array.from({ length: 80 }, (_, i) => {
+        const t = i * Math.PI * 2 / 80;
+        return new THREE.Vector3(radius * Math.cos(angle) * Math.cos(t), radius * Math.sin(angle), radius * Math.cos(angle) * Math.sin(t));
+      }));
+    }
+    for (let meridian = 0; meridian < 8; meridian++) {
+      const angle = meridian * Math.PI / 8;
+      addRing(Array.from({ length: 80 }, (_, i) => {
+        const t = i * Math.PI * 2 / 80;
+        return new THREE.Vector3(radius * Math.sin(t) * Math.cos(angle), radius * Math.cos(t), radius * Math.sin(t) * Math.sin(angle));
+      }));
+    }
+    head.rotation.y = .24;
+  } else orb(head, blue, [0.43, 0.315, 0.255], [0, 0, 0]);
   const eyeBaseY = 0.025;
   const eyes: THREE.Group[] = [];
   let smile: THREE.Mesh | null = null;
@@ -311,7 +336,7 @@ export function createAvatarScene(
       }
       fingers.push(chain);
     });
-    const geometry = buildHandSurface(bindings, palmMaterial);
+    const geometry = buildHandSurface(bindings, palmMaterial, ghostHead ? 28 : 96);
     resources.push(geometry);
     const mesh = new THREE.SkinnedMesh(geometry, palmMaterial);
     mesh.frustumCulled = false;
@@ -327,6 +352,7 @@ export function createAvatarScene(
     nails.frustumCulled = false;
     nails.bind(skeleton);
     group.add(nails);
+    nails.visible = !ghostHead;
     const creaseGeometry = mergeGeometries(creaseParts)!;
     creaseParts.forEach((part) => part.dispose());
     resources.push(creaseGeometry);
@@ -334,6 +360,7 @@ export function createAvatarScene(
     creases.frustumCulled = false;
     creases.bind(skeleton);
     group.add(creases);
+    creases.visible = !ghostHead;
     return {
       group,
       fingers,
@@ -409,7 +436,7 @@ export function createAvatarScene(
     // Command reactions must not override movements while a hand is tracked.
     rig.group.position.z = smooth(rig.group.position.z, pose ? 0.5 : 0.24 + kick * 0.1, blend);
     rig.group.quaternion.slerp(rig.target, blend);
-    rig.material.emissiveIntensity = 0.022 + kick * 0.08;
+    rig.material.emissiveIntensity = ghostHead ? 0 : 0.022 + kick * 0.08;
     rig.fingers.forEach((chain, finger) => {
       chain.forEach((joint, i) => {
         joint.quaternion.slerp(pose?.fingers[finger][i] ?? rig.restFingers[finger][i], blend);

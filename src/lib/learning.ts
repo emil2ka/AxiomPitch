@@ -1,5 +1,5 @@
 import { isOpenPalm, isVisibleHand, releasedPalm } from "./gestures.ts";
-import type { Gesture, Point } from "./types.ts";
+import type { Feedback, Gesture, Point } from "./types.ts";
 
 export const lessons = [
   { label: "Знакомство", title: "Привет. Начнём\nс тебя.", description: "Покажи открытую ладонь. Голова и плечи для управления не нужны.", cue: "Покажи открытую ладонь", motion: "hello", expected: null },
@@ -18,6 +18,17 @@ export function createPractice(step: number): Practice {
 }
 export function expectedGesture(step: number, sequence: number): Gesture | null {
   return step === 5 ? (miniSequence[sequence] ?? null) : (lessons[step]?.expected ?? null);
+}
+/** A stationary palm should not teach a hold during a swipe exercise. */
+export function practiceFeedback(step: number, sequence: number, feedback: Feedback): Feedback {
+  const expected = expectedGesture(step, sequence);
+  if ((feedback.kind === "progress" && expected !== "toggle") ||
+      (feedback.kind === "success" && feedback.gesture !== expected))
+    return { kind: "idle", message: expected === "next"
+      ? "Ладонь вижу. Теперь проведи её вправо →"
+      : expected === "previous" ? "Ладонь вижу. Теперь проведи её влево ←"
+      : "Держи открытую ладонь неподвижно 1,5 секунды." };
+  return feedback;
 }
 export function applyPracticeGesture(step: number, state: Practice, gesture: Gesture): Practice {
   if (state.passed || gesture !== expectedGesture(step, state.sequence)) return state;

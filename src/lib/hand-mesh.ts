@@ -10,8 +10,7 @@ export type FingerBinding = {
 
 /** Smoothly join the palm, wrist and all five fingers into one surface.
  * Geometry is baked once; the normal camera-driven bone rig animates it. */
-export function buildHandSurface(bindings: FingerBinding[], material: THREE.Material) {
-  const resolution = 96;
+export function buildHandSurface(bindings: FingerBinding[], material: THREE.Material, resolution = 96) {
   const marching = new MarchingCubes(resolution, material, false, false, 60000);
   marching.isolation = 0;
   const scale = new THREE.Vector3(0.43, 0.49, 0.14);

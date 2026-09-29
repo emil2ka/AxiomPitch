@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { advanceAfterSuccess, applyPracticeGesture, createPractice, expectedGesture, goodLearningHands } from "../src/lib/learning.ts";
+import { advanceAfterSuccess, applyPracticeGesture, createPractice, expectedGesture, goodLearningHands, practiceFeedback } from "../src/lib/learning.ts";
 import { GestureEngine } from "../src/lib/gestures.ts";
 import type { Point } from "../src/lib/types.ts";
 
@@ -61,6 +61,18 @@ test("recognized camera commands feed the same exercise logic", () => {
   const detected = engine.update([], [palm(.7)], 500, false);
   assert.equal(detected.gesture, "next");
   assert.equal(applyPracticeGesture(1, createPractice(1), detected.gesture!).passed, true);
+});
+
+test("stationary palm feedback teaches the expected swipe instead of an unrelated hold", () => {
+  const engine = new GestureEngine();
+  engine.update([], [palm()], 0, false);
+  const holding = engine.update([], [palm()], 500, false);
+  assert.equal(holding.kind, "progress");
+  const forward = practiceFeedback(1, 0, holding);
+  assert.match(forward.message, /вправо/);
+  assert.equal(forward.progress, undefined);
+  assert.match(practiceFeedback(5, 2, holding).message, /влево/);
+  assert.equal(practiceFeedback(3, 0, holding), holding);
 });
 
 

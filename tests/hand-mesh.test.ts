@@ -3,7 +3,7 @@ import { test } from "node:test";
 import * as THREE from "three";
 import { buildHandSurface } from "../src/lib/hand-mesh.ts";
 
-test("continuous hand mesh has bounded geometry and valid normalized bone weights", () => {
+for (const resolution of [96, 28]) test(`hand mesh at resolution ${resolution} has bounded geometry and normalized bone weights`, () => {
   const starts = [[-.119,.119],[-.038,.151],[.046,.135],[.116,.085],[-.141,-.045]];
   const lengths = [[.112,.086,.07],[.128,.092,.076],[.122,.088,.072],[.09,.066,.056],[.09,.07,.055]];
   const material = new THREE.MeshBasicMaterial();
@@ -12,9 +12,9 @@ test("continuous hand mesh has bounded geometry and valid normalized bone weight
     firstIndex: 1+i*3,
     segments: lengths[i],
     radius: i === 3 ? .028 : i === 4 ? .042 : .036,
-  })), material);
+  })), material, resolution);
   const positions = geometry.attributes.position, weights = geometry.attributes.skinWeight, indices = geometry.attributes.skinIndex;
-  assert.ok(positions.count > 10000);
+  assert.ok(positions.count > (resolution === 96 ? 10000 : 700));
   assert.ok(positions.count < 150000);
   for (let i=0;i<positions.count;i++) {
     assert.ok(Number.isFinite(positions.getX(i)+positions.getY(i)+positions.getZ(i)));

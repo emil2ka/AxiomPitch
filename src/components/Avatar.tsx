@@ -70,7 +70,9 @@ export const Avatar = forwardRef<
       style={transitionName ? { viewTransitionName: transitionName } : undefined}
       role="img"
       aria-label={
-        face === "expressive"
+        headStyle === "ghost"
+          ? "3D-зеркало спикера: полая сетчатая голова и две сетчатые ладони"
+          : face === "expressive"
           ? "Синий 3D-помощник: две выразительные ладони и маленькое лицо на заднем плане"
           : "Безликое 3D-зеркало спикера: округлая голова и две объёмные ладони"
       }
