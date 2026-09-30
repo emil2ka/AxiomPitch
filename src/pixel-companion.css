@@ -1,0 +1,4 @@
+/* Shared by every route, including direct visits before the landing page loads. */
+.pixel-companion { position: relative; width: 190px; aspect-ratio: 704 / 512; flex: 0 0 auto; isolation: isolate; }
+.pixel-companion > .pixel-poster, .pixel-companion > .pixel-animation { position: absolute; inset: 0; display: block; width: 100%; height: 100%; object-fit: contain; image-rendering: pixelated; }
+.pixel-poster.concealed, .pixel-animation.loading { opacity: 0; }

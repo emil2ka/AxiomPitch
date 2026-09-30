@@ -1,6 +1,7 @@
 import { lazy, StrictMode, Suspense } from "react";
 import { createRoot } from "react-dom/client";
 import "./index.css";
+import "./pixel-companion.css";
 import App from "./App.tsx";
 // oxlint-disable-next-line react/only-export-components -- entrypoint renders the lazy route
 const Overlay = lazy(() => import("./components/Overlay.tsx").then(module => ({ default: module.Overlay })));
