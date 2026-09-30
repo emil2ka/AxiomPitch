@@ -81,5 +81,6 @@ export function CompanionPreview() {
         </aside>
       </div>
     </main>
+
   </div>;
 }

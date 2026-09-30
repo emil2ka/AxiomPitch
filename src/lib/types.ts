@@ -4,6 +4,8 @@ export type Feedback = {
   kind: "idle" | "progress" | "error" | "success";
   message: string;
   progress?: number;
+  /** The movement being measured; gesture is reserved for accepted commands. */
+  progressGesture?: Gesture;
   gesture?: Gesture;
   code?: string;
 };

@@ -53,6 +53,7 @@ const RETURN_GUARD = 3000;
 const STALL_MS = 250;
 const FAR_PALM = 0.045;
 const UPRIGHT_COS = Math.cos((65 * Math.PI) / 180);
+const ALL_GESTURES: readonly Gesture[] = ["next", "previous", "toggle"];
 /** The camera is requested at 1280×720; frames that report their size override this. */
 export const DEFAULT_ASPECT = 16 / 9;
 
@@ -197,6 +198,7 @@ export class GestureEngine {
     time: number,
     locked: boolean,
     aspect = DEFAULT_ASPECT,
+    allowedGestures: readonly Gesture[] = ALL_GESTURES,
   ): Feedback {
     if (!(Number.isFinite(aspect) && aspect > 0)) aspect = DEFAULT_ASPECT;
     if (this.wasLocked !== null && this.wasLocked !== locked)
@@ -214,6 +216,8 @@ export class GestureEngine {
         ? "Жесты заблокированы · удержи ладонь, чтобы включить"
         : "Покажи открытую ладонь камере",
     };
+    const canHold = allowedGestures.includes("toggle");
+    const canSwipe = allowedGestures.includes("next") || allowedGestures.includes("previous");
 
     const { hand, lostMidSwipe } = this.follow(visible, time);
     if (lostMidSwipe && !locked)
@@ -286,13 +290,21 @@ export class GestureEngine {
     if (locked) {
       // While locked only one thing matters: a deliberate still hold. Free
       // gesturing must stay silent instead of flashing hints and errors.
-      if (atEdge) {
+      if (atEdge || !canHold) {
         this.hold = null;
         return this.remember(idle);
       }
       return (
         this.holdStep(sample, time, true, track.scale) ?? this.remember(idle)
       );
+    }
+
+    // A lesson can ask for a hold without accepting swipes along the way.
+    // Filter before firing: rejecting a command afterwards still consumes its
+    // cooldown/release state and strands the next attempt.
+    if (!canSwipe) {
+      if (atEdge) { this.hold = null; return this.remember(idle); }
+      return canHold ? this.holdStep(sample, time, false, track.scale) ?? this.remember(idle) : this.remember(idle);
     }
 
     this.record(sample, threshold);
@@ -316,8 +328,14 @@ export class GestureEngine {
       this.debug.dy = 0;
       this.debug.elapsed = 0;
     }
-    if (swipe && swipe.flat && !swipe.guarded && swipe.disp >= threshold)
-      return this.fire(swipe, sample, threshold, time);
+    if (swipe && swipe.flat && !swipe.guarded && swipe.disp >= threshold) {
+      if (allowedGestures.includes(swipe.dir === 1 ? "next" : "previous"))
+        return this.fire(swipe, sample, threshold, time);
+      this.samples = [sample];
+      this.attempt = null;
+      this.hold = null;
+      return this.remember({ kind: "error", code: "direction", message: allowedGestures.includes("next") ? "В этом упражнении проведи ладонь вправо →" : "В этом упражнении проведи ладонь влево ←" });
+    }
 
     if (
       swipe &&
@@ -378,6 +396,7 @@ export class GestureEngine {
       this.hold = null;
       return this.remember({
         kind: "progress",
+        progressGesture: attempting.dir === 1 ? "next" : "previous",
         message: `Продолжай движение ${attempting.dir === 1 ? "вправо" : "влево"}`,
         progress: Math.min(1, attempting.progress),
       });
@@ -399,7 +418,7 @@ export class GestureEngine {
     }
     this.currentHint = "";
     return (
-      this.holdStep(sample, time, false, track.scale) ??
+      (canHold ? this.holdStep(sample, time, false, track.scale) : null) ??
       this.remember({
         kind: "idle",
         message: "Ладонь вижу · проведи вправо или влево",
@@ -609,6 +628,7 @@ export class GestureEngine {
       if (held >= HOLD_MS) return this.toggle(now, time, locked);
       return this.remember({
         kind: "progress",
+        progressGesture: "toggle",
         message: locked
           ? "Удерживай ладонь · включение жестов"
           : "Удерживай ладонь · блокировка жестов",

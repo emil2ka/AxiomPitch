@@ -91,13 +91,15 @@ export function controlRoutes(
         sendJson(res, 200, {
           visible: hub.overlay.visible,
           displayId: hub.overlay.displayId,
+          scale: hub.overlay.scale,
           displays: hub.displays,
           shellConnected: hub.online("shell"),
         });
         return true;
       }
       if (req.method === "POST") {
-        const { visible, displayId } = await body(req);
+        const { visible, displayId, scale } = await body(req);
+        if (scale !== undefined && (typeof scale !== "number" || !Number.isFinite(scale) || scale < .75 || scale > 1.35)) throw new HttpError(400, "Размер чёлки вне диапазона.");
         if (typeof visible !== "boolean")
           throw new HttpError(400, "visible должен быть true или false.");
         if (
@@ -115,10 +117,12 @@ export function controlRoutes(
         const overlay = hub.setOverlay(
           visible,
           displayId === undefined ? hub.overlay.displayId : typeof displayId === "number" ? displayId : null,
+          scale as number | undefined,
         );
         sendJson(res, 200, {
           visible: overlay.visible,
           displayId: overlay.displayId,
+          scale: overlay.scale,
           shellConnected: hub.online("shell"),
         });
         return true;

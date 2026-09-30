@@ -1,0 +1,80 @@
+/* Preparation, equipment test and the actual show each have their own surface. */
+.studio.is-presenting { display: block; padding: 0; background: #000; }
+.studio.is-presenting .studio-main { padding: 0; margin: 0; }
+.performance-screen { position: fixed; inset: 0; z-index: 130; display: grid; place-items: center; background: #000; color: #edf2f8; }
+.performance-slide { width: min(100vw, calc(100dvh * 16 / 9)); max-height: 100dvh; }
+.performance-slide .slide-surface { width: 100%; border: 0; border-radius: 0; box-shadow: none; }
+.performance-slide .slide-surface.pdf { background: #000; }
+.performance-controls { position: absolute; inset: auto 0 0; display: flex; align-items: center; gap: 12px; padding: 28px 24px 16px; background: linear-gradient(transparent, #000d); transition: opacity .25s; }
+.controls-hidden .performance-controls { opacity: 0; }
+.performance-controls:hover, .performance-controls:has(:focus-visible) { opacity: 1; }
+.performance-controls button { border: 0; background: #ffffff0c; color: #d6deea; display: flex; align-items: center; justify-content: center; gap: 7px; padding: 10px; border-radius: 8px; font-size: 12px; min-height: 38px; }
+.performance-controls button:hover { background: #ffffff20; }
+.performance-controls button:disabled { opacity: .25; }
+.performance-controls button:focus-visible { outline: 2px solid #a3c6f0; outline-offset: 3px; }
+.performance-position { display: flex; gap: 12px; align-items: center; margin-left: auto; }
+.performance-position > span { min-width: 60px; font-size: 14px; font-variant-numeric: tabular-nums; text-align: center; }
+.performance-position small { color: #98a4b4; font-size: 12px; }
+.performance-time { min-width: 52px; font-size: 14px; font-variant-numeric: tabular-nums; margin-left: auto; }
+.performance-time small { display: block; font-size: 9px; color: #a4b3c8; }
+.performance-external { padding: 80px 30px; text-align: center; }
+.performance-external span { font-size: 12px; color: #94a3b8; }
+.performance-external h1 { font-size: 48px; margin: 12px 0; }
+.performance-external p { color: #aab6c6; font-size: 14px; }
+.test-page { max-width: 1180px; padding: 28px 0 40px; color: #e9eef6; }
+.test-heading { display: flex; align-items: center; justify-content: space-between; gap: 20px; margin-bottom: 30px; }
+.test-eyebrow { font-size: 10px; letter-spacing: .14em; color: #7b899b; }
+.test-heading h1 { font-size: 36px; font-weight: 500; margin: 8px 0; letter-spacing: -.04em; }
+.test-heading h1:focus { outline: none; }
+.test-heading p { color: #919eaf; font-size: 14px; }
+.test-studio { display: flex; align-items: center; gap: 8px; border: 0; background: transparent; color: #bed4ef; font-size: 13px; padding: 10px 0 10px 10px; }
+.test-workbench { display: grid; grid-template-columns: minmax(0, 1fr) 300px; gap: 42px; align-items: start; }
+.test-visual { min-width: 0; }
+.test-slide { display: flex; align-items: center; justify-content: center; flex-direction: column; gap: 18px; aspect-ratio: 16 / 9; background: radial-gradient(ellipse at 50% 55%, #1b2f4966, #06090d 68%); border: 0; border-radius: 14px; text-align: center; padding: 20px; }
+.test-slide > span { color: #60738d; letter-spacing: .18em; font-size: 9px; }
+.test-slide > svg { color: #9abce6; }
+.test-slide strong { font-size: clamp(22px, 2.3vw, 34px); font-weight: 450; letter-spacing: -.025em; }
+.test-slide p { color: #9caec6; font-size: 13px; margin: 0; }
+.test-slide-dots { display: flex; gap: 8px; }
+.test-slide-dots i { height: 3px; width: 20px; border-radius: 3px; background: #334156; }
+.test-slide-dots .active { background: #b1d0f7; }
+.test-camera { display: flex; gap: 20px; align-items: center; margin-top: 20px; }
+.test-camera .settings-camera-preview { width: 220px; flex: 0 0 220px; aspect-ratio: 16 / 9; min-height: 0; border: 0; background: #070a0f; margin: 0; }
+.test-camera .settings-camera-preview > div { font-size: 10px; padding: 12px; text-align: center; }
+.test-camera button { display: flex; gap: 8px; align-items: center; border: 0; background: transparent; color: #afbed2; font-size: 12px; padding: 10px; }
+.test-progress-heading { display: flex; align-items: center; justify-content: space-between; gap: 12px; font-size: 16px; padding-top: 6px; }
+.test-progress-heading small { color: #748298; font-size: 12px; }
+.test-progress-track { height: 2px; background: #ffffff0a; margin-top: 16px; }
+.test-progress-track i { display: block; height: 100%; background: #a8c8ed; transition: width .3s; }
+.test-checks { list-style: none; margin: 20px 0 26px; padding: 0; }
+.test-checks li { display: flex; align-items: center; gap: 12px; padding: 12px 0; color: #8491a3; font-size: 13px; }
+.test-check-dot { width: 6px; height: 6px; background: #3c4756; border-radius: 50%; margin: 0 5px; }
+.test-checks .passed { color: #d3e7da; }
+.test-checks .passed svg { color: #87b798; }
+.test-actions { display: flex; gap: 8px; }
+.test-actions button, .test-notch, .test-settings { display: flex; align-items: center; justify-content: center; gap: 8px; border: 0; border-radius: 9px; padding: 13px 14px; font-size: 13px; }
+.test-primary { flex: 1; background: #bfd7f5; color: #102135; }
+.test-restart { background: #ffffff07; color: #aebed2; }
+.test-notch { width: 100%; margin-top: 10px; background: #ffffff05; color: #bccde2; }
+.test-settings { color: #8797ae; background: transparent; width: 100%; font-size: 11px; padding: 12px; }
+.test-page button:disabled { opacity: .4; cursor: default; }
+.test-page button:focus-visible { outline: 2px solid #a3c6f0; outline-offset: 3px; }
+.test-page button:hover:not(:disabled) { filter: brightness(1.1); }
+@media(max-width:900px) { .test-workbench { grid-template-columns: minmax(0, 1fr) 260px; gap: 24px; } .test-camera { align-items: start; flex-direction: column; gap: 6px; } }
+@media(max-width:650px) { .test-heading { align-items: start; gap: 12px; margin-bottom: 20px; } .test-heading h1 { font-size: 30px; } .test-heading p { font-size: 12px; max-width: 240px; line-height: 1.6; } .test-workbench { grid-template-columns: minmax(0, 1fr); gap: 24px; } .test-slide { min-height: 230px; } .test-camera { flex-direction: row; align-items: center; } .test-camera .settings-camera-preview { width: 160px; flex-basis: 160px; } .test-camera button { font-size: 11px; padding: 0; } .test-checks { display: grid; grid-template-columns: minmax(0, 1fr) minmax(0, 1fr); gap: 0 12px; } .test-checks li { font-size: 11px; gap: 8px; } .performance-controls { gap: 5px; padding: 25px 10px 12px; flex-wrap: wrap; } .performance-controls button { padding: 8px; font-size: 10px; } .performance-position { gap: 4px; } .performance-position > span { min-width: 44px; font-size: 12px; } .performance-time { min-width: 40px; font-size: 12px; } }
+@media(prefers-reduced-motion:reduce) { .performance-controls, .test-progress-track i { transition: none; } }
+
+.camera-source { position: fixed; width: 1px; height: 1px; opacity: 0; pointer-events: none; left: -2px; top: -2px; }
+.studio-equipment-status { color: #768497; font-size: 10px; line-height: 1.6; margin: 14px 0 0; }
+.studio-control-column { grid-area: right; min-width: 0; }
+.studio-deck .camera-panel .settings-camera-preview { margin: 12px 0; width: 100%; border: 0; min-height: 0; aspect-ratio: 16 / 9; }
+.studio-deck .camera-panel .settings-camera-preview > div { font-size: 12px; text-align: center; padding: 12px; }
+.settings-page { position: relative; }
+.test-presentation .slide-surface { border: 0; border-radius: 12px; overflow: hidden; box-shadow: none; }
+.test-slide-caption { display: flex; align-items: center; justify-content: space-between; gap: 12px; padding: 16px 2px; }
+.test-slide-caption > span { color: #75869e; font-size: 11px; white-space: nowrap; }
+.test-slide-caption > strong { color: #b4c8e3; font-size: 12px; font-weight: 450; text-align: right; }
+.studio .performance-screen .slide-surface { border: 0; border-radius: 0; }
+
+.test-demo-controls { display: flex; align-items: center; gap: 8px; color: #7f90a9; font-size: 11px; white-space: nowrap; }
+.test-demo-controls button { display: flex; padding: 6px; border: 0; border-radius: 5px; background: #ffffff05; color: #a5bad4; }

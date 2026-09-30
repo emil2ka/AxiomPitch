@@ -22,7 +22,7 @@ export type TargetInfo = {
 };
 export type AppRef = { name: string; bundleId: string };
 export type LiveSession = {
-  stage: "idle" | "running" | "paused" | "finished";
+  stage: "idle" | "running" | "paused" | "finished" | "checking";
   mode: "rehearsal" | "live";
   index: number;
   slideCount: number;
@@ -30,8 +30,9 @@ export type LiveSession = {
   id?: string;
   overlayEnabled?: boolean;
   overlayDisplayId?: number | null;
+  overlayScale?: number;
 };
-export type OverlayState = { visible: boolean; displayId: number | null };
+export type OverlayState = { visible: boolean; displayId: number | null; scale: number };
 export type DisplayInfo = { id: number; label: string; primary: boolean; width: number; height: number };
 export type LiveFrame = Pick<
   VisionFrame,
@@ -195,10 +196,10 @@ export class BridgeClient {
     );
   }
 
-  setOverlay(visible: boolean, displayId?: number | null) {
+  setOverlay(visible: boolean, displayId?: number | null, scale?: number) {
     return request<OverlayState & { shellConnected: boolean }>(
       "/api/overlay",
-      jsonBody({ visible, displayId }),
+      jsonBody({ visible, displayId, scale }),
       this.base,
     );
   }

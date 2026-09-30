@@ -1,3 +1,4 @@
+import { profileScope } from "./profiles.ts";
 import { randomUUID } from "node:crypto";
 import { createReadStream } from "node:fs";
 import { unlink, writeFile } from "node:fs/promises";
@@ -10,10 +11,10 @@ const uuid = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/;
 const loopback = new Set(["127.0.0.1", "::1", "::ffff:127.0.0.1"]);
 const tooLarge = "PDF больше 30 МБ. Сожми файл или раздели его.";
 
-const view = (base: string, presentation: Presentation) => ({
+const view = (base: string, presentation: Presentation, profileId: string | null = null) => ({
   id: presentation.id,
   name: presentation.name,
-  url: `${base}/api/presentations/${presentation.id}/file`,
+  url: `${base}/api/presentations/${presentation.id}/file${profileId ? `?profile=${encodeURIComponent(profileId)}` : ""}`,
   pageCount: presentation.pageCount,
   notes: presentation.notes,
   createdAt: presentation.createdAt,
@@ -26,7 +27,7 @@ const cleanName = (fileName: string) =>
     .trim()
     .slice(0, 120) || "Презентация";
 
-async function upload(store: Store, { req, res, base }: Context) {
+async function upload(store: Store, { req, res, base }: Context, profileId: string | null) {
   const type = req.headers["content-type"] ?? "";
   if (!/^multipart\/form-data/i.test(type))
     throw new HttpError(400, "Отправь PDF в поле file (multipart/form-data).");
@@ -62,12 +63,12 @@ async function upload(store: Store, { req, res, base }: Context) {
   const path = store.filePath(presentation.id);
   await writeFile(path, bytes);
   try {
-    store.addPresentation(presentation);
+    store.addPresentation(presentation, profileId);
   } catch (error) {
     await unlink(path).catch(() => undefined);
     throw error;
   }
-  sendJson(res, 201, view(base, presentation));
+  sendJson(res, 201, view(base, presentation, profileId));
 }
 
 function sendFile(store: Store, presentation: Presentation, context: Context) {
@@ -118,20 +119,21 @@ export function presentationRoutes(store: Store): Route {
     const { req, res, path, base } = context;
     if (path[0] !== "presentations") return false;
     const [, id, action] = path;
+    const profileId = profileScope(store, context);
     if (id === undefined) {
-      if (req.method === "POST") await upload(store, context);
+      if (req.method === "POST") await upload(store, context, profileId);
       else if (req.method === "GET")
         sendJson(res, 200, {
-          items: store.listPresentations().map((item) => view(base, item)),
+          items: store.listPresentations(profileId).map((item) => view(base, item, profileId)),
         });
       else throw new HttpError(405, "Метод не поддерживается.");
       return true;
     }
-    const presentation = uuid.test(id) ? store.getPresentation(id) : null;
+    const presentation = uuid.test(id) ? store.getPresentation(id, profileId) : null;
     if (!presentation || path.length > 3)
       throw new HttpError(404, "Презентация не найдена.");
     if (action === undefined && req.method === "GET")
-      sendJson(res, 200, view(base, presentation));
+      sendJson(res, 200, view(base, presentation, profileId));
     else if (action === "file" && req.method === "GET")
       sendFile(store, presentation, context);
     else if (action === "notes" && req.method === "PATCH")

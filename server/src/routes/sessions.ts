@@ -1,3 +1,4 @@
+import { profileScope } from "./profiles.ts";
 import type { SessionResult } from "../../../src/lib/types.ts";
 import type { Store } from "../db.ts";
 import { HttpError, isRecord, readJson, sendJson } from "../http.ts";
@@ -112,14 +113,16 @@ export function validateSession(body: unknown) {
 }
 
 export function sessionRoutes(store: Store): Route {
-  return async ({ req, res, url, path }) => {
+  return async context => {
+    const { req, res, url, path } = context;
     if (path[0] !== "sessions" || path.length > 1) return false;
+    const profileId = profileScope(store, context);
     if (req.method === "POST") {
       const { result, presentationId } = validateSession(await readJson(req));
-      if (presentationId && !store.getPresentation(presentationId))
+      if (presentationId && !store.getPresentation(presentationId, profileId))
         throw bad("Презентация не найдена.");
       const savedAt = new Date().toISOString();
-      if (!store.addSession({ ...result, presentationId, savedAt }))
+      if (!store.addSession({ ...result, presentationId, savedAt }, profileId))
         throw new HttpError(409, "Эта сессия уже сохранена.");
       sendJson(res, 201, { id: result.id, savedAt });
       return true;
@@ -130,7 +133,7 @@ export function sessionRoutes(store: Store): Route {
         Math.max(1, Number(url.searchParams.get("limit")) || 20),
       );
       const offset = Math.max(0, Number(url.searchParams.get("offset")) || 0);
-      const { items, total } = store.listSessions(limit, Math.floor(offset));
+      const { items, total } = store.listSessions(limit, Math.floor(offset), profileId);
       sendJson(res, 200, { items, total, limit, offset: Math.floor(offset) });
       return true;
     }

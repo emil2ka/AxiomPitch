@@ -1,6 +1,6 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { advanceAfterSuccess, applyPracticeGesture, createPractice, expectedGesture, goodLearningHands, practiceFeedback } from "../src/lib/learning.ts";
+import { LearningGestureEngine, advanceAfterSuccess, applyPracticeGesture, createPractice, expectedGesture, goodLearningHands, practiceFeedback } from "../src/lib/learning.ts";
 import { GestureEngine } from "../src/lib/gestures.ts";
 import type { Point } from "../src/lib/types.ts";
 
@@ -104,4 +104,93 @@ test("closing fingers advances a hold lesson without taking the hand off camera"
   const closed = palm().map((point, i) => [8,12,16,20].includes(i) ? {...point, y: .43} : point);
   const first = advanceAfterSuccess({completedAt: 0, releasedAt: null, releaseY: .4}, [closed], 1100);
   assert.equal(advanceAfterSuccess(first.gate, [closed], 1450).ready, true);
+});
+
+const frame = (time: number, hands: Point[][], handLabels?: string[]) => ({ type: "frame" as const, time, hands, handLabels, pose: [], duration: 0 });
+
+test("waiting with an open palm never consumes a swipe lesson's release gate", () => {
+  const engine = new LearningGestureEngine();
+  for (let time = 0; time < 6000; time += 100) {
+    const result = engine.update(frame(time, [palm()]), "next", false);
+    assert.equal(result.gesture, undefined);
+    assert.doesNotMatch(result.message, /блокиров|принята|Расслабь/);
+  }
+  const result = engine.update(frame(6100, [palm(.65)]), "next", false);
+  assert.equal(result.gesture, "next");
+  assert.equal(applyPracticeGesture(1, createPractice(1), result.gesture!).passed, true);
+});
+
+test("a stationary first hand cannot hide the second hand's swipe, even when detections reorder", () => {
+  const engine = new LearningGestureEngine();
+  const results = [];
+  const resting = palm(.2);
+  for (let time = 0; time <= 400; time += 50) {
+    const moving = palm(.55 + .25 * time / 400);
+    results.push(engine.update(time % 100 === 0
+      ? frame(time, [resting, moving], ["Left", "Right"])
+      : frame(time, [moving, resting], ["Right", "Left"]), "next", false));
+  }
+  assert.deepEqual(results.flatMap(result => result.gesture ? [result.gesture] : []), ["next"]);
+});
+
+test("wrong-direction movement does not prevent an immediate correct attempt", () => {
+  const engine = new LearningGestureEngine();
+  engine.update(frame(0, [palm(.55)]), "next", false);
+  const wrong = engine.update(frame(250, [palm(.3)]), "next", false);
+  assert.equal(wrong.gesture, undefined);
+  assert.equal(wrong.code, "direction");
+  assert.equal(engine.update(frame(500, [palm(.55)]), "next", false).gesture, "next");
+});
+
+test("swipe progress stays visible instead of being replaced by a hold instruction", () => {
+  const engine = new LearningGestureEngine();
+  engine.update(frame(0, [palm()]), "next", false);
+  const result = engine.update(frame(200, [palm(.45)]), "next", false);
+  assert.equal(result.kind, "progress");
+  assert.equal(result.progressGesture, "next");
+  assert.ok((result.progress ?? 0) > .25);
+  assert.equal(practiceFeedback(1, 0, result), result);
+});
+
+test("hold practice ignores swipes and only accepts the full stationary hold", () => {
+  const engine = new LearningGestureEngine();
+  engine.update(frame(0, [palm()]), "toggle", false);
+  assert.equal(engine.update(frame(300, [palm(.7)]), "toggle", false).gesture, undefined);
+  assert.equal(engine.update(frame(1799, [palm(.7)]), "toggle", false).gesture, undefined);
+  assert.equal(engine.update(frame(1800, [palm(.7)]), "toggle", false).gesture, "toggle");
+});
+
+test("brief missing/blurred camera frames preserve the same learning swipe", () => {
+  const engine = new LearningGestureEngine();
+  engine.update(frame(0, [palm(.3)], ["Right"]), "next", false);
+  engine.update(frame(100, [palm(.35)], ["Right"]), "next", false);
+  engine.update(frame(160, []), "next", false);
+  const result = engine.update(frame(220, [palm(.45)], ["Right"]), "next", false);
+  assert.equal(result.gesture, "next");
+});
+
+test("camera practice completes the mini-pitch without counting the return to centre", () => {
+  const engine = new LearningGestureEngine();
+  let state = createPractice(5);
+  const sweep = (from: number, to: number, start: number) => {
+    for (let t = 0; t <= 300; t += 50) {
+      const expected = expectedGesture(5, state.sequence);
+      if (!expected) return;
+      const result = engine.update(frame(start + t, [palm(from + (to - from) * t / 300)], ["Right"]), expected, state.locked);
+      if (result.gesture) state = applyPracticeGesture(5, state, result.gesture);
+    }
+  };
+  sweep(.3, .6, 0);
+  assert.equal(state.sequence, 1);
+  sweep(.6, .6, 400);
+  sweep(.6, .3, 800);
+  assert.equal(state.sequence, 1);
+  sweep(.3, .6, 1200);
+  assert.equal(state.sequence, 2);
+  sweep(.6, .6, 1600);
+  sweep(.6, .3, 2000);
+  assert.equal(state.sequence, 2);
+  sweep(.3, .1, 2400);
+  assert.equal(state.sequence, 3);
+  assert.equal(state.passed, true);
 });

@@ -5,9 +5,10 @@ import { Avatar } from "./Avatar";
 import { TeachingCompanion } from "./TeachingCompanion";
 import type { AvatarHandle } from "./Avatar";
 import { PitchBrand } from "./Landing";
+import { loadAccount, profileStorage } from "../lib/account";
 import { useCamera } from "../hooks/useCamera";
-import { GestureEngine, isOpenPalm, isVisibleHand } from "../lib/gestures";
-import { advanceAfterSuccess, applyPracticeGesture, createPractice, expectedGesture, goodLearningHands, lessons, practiceFeedback } from "../lib/learning";
+import { isOpenPalm, isVisibleHand } from "../lib/gestures";
+import { LearningGestureEngine, advanceAfterSuccess, applyPracticeGesture, createPractice, expectedGesture, goodLearningHands, lessons, practiceFeedback } from "../lib/learning";
 import type { AdvanceGate, Practice } from "../lib/learning";
 import type { Feedback, VisionFrame } from "../lib/types";
 import "../learning.css";
@@ -15,7 +16,8 @@ import "../learning.css";
 const slideTitles = ["Твоя история. Твоя сцена.", "Свобода движения.", "Один жест. Следующий слайд.", "Помощник рядом.", "В твоём ритме."];
 const successMessages = ["Ладонь вижу. Всё готово!", "Получилось. Слайд переключён.", "Отлично. Мы вернулись назад.", "Жесты выключены. Руки свободны.", "Снова в деле. Жесты включены.", "Ты справился. Можно на сцену."];
 
-export function LearningPage({ onEnterStudio }: { onEnterStudio: () => void }) {
+export function LearningPage({ onEnterStudio }: { onEnterStudio: (completed: boolean) => void }) {
+  const [preferences] = useState(() => profileStorage(loadAccount()?.id ?? "guest"));
   const [step, setStep] = useState(0);
   const [practice, setPractice] = useState<Practice>(() => createPractice(0));
   const [active, setActive] = useState(false);
@@ -27,7 +29,11 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: () => void }) {
   const [demoSequence, setDemoSequence] = useState(0);
   const [handDetected, setHandDetected] = useState(false);
   const avatar = useRef<AvatarHandle>(null);
-  const engine = useRef(new GestureEngine());
+  const engine = useRef(new LearningGestureEngine());
+  useEffect(() => {
+    const value = Number(preferences.getItem("axiompitch-sensitivity"));
+    engine.current.setSensitivity(value >= .55 && value <= 1.15 ? value : .85);
+  }, [preferences]);
   const current = useRef({ step: 0, practice: createPractice(0), active: false });
   const calibration = useRef<number | null>(null);
   const pendingPractice = useRef(false);
@@ -98,7 +104,9 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: () => void }) {
       else setFeedback({ kind: "progress", message: "Хорошо. Останься так на секунду.", progress });
       return;
     }
-    const result = engine.current.update(frame.pose, frame.hands, frame.time, state.locked, frame.aspect);
+    const expected = expectedGesture(atStep, state.sequence);
+    if (!expected) return;
+    const result = engine.current.update(frame, expected, state.locked);
     if (result.kind === "success" && result.gesture) {
       const next = applyPracticeGesture(atStep, state, result.gesture);
       if (next === state) {
@@ -117,7 +125,7 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: () => void }) {
       else avatar.current?.setExpression("calm");
     }
   }, [finish, moveToStep]);
-  const { status: cameraStatus, error: cameraError, videoRef, start: cameraStart, stop: cameraStop } = useCamera(onFrame);
+  const { status: cameraStatus, error: cameraError, videoRef, start: cameraStart, stop: cameraStop } = useCamera(onFrame, preferences.getItem("axiompitch-camera") || "");
   const cameraOn = cameraStatus === "ready" || cameraStatus === "loading";
   const running = sessionRunning && cameraStatus === "ready";
 
@@ -225,13 +233,13 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: () => void }) {
   const guidance = cameraError || (passed || active ? feedback.message : step === 6 ? "Продолжай в своём темпе." : exampleHint);
   const holdProgress = active ? feedback.progress ?? 0 : passed ? 1 : 0;
 
-  const primaryAction = step < 6 ? <button className="learn-primary" onClick={passed ? () => moveToStep(step + 1, runningRef.current) : begin}>{passed ? <Check size={17} /> : cameraStatus === "loading" ? <LoaderCircle className="spin" size={17} /> : <Hand size={17} />}{passed ? "Следующее упражнение" : cameraStatus === "loading" ? "Отменить подключение" : active ? "Начать попытку заново" : cameraStatus === "ready" ? "Теперь мой ход" : "Попробовать с камерой"}</button> : <button className="learn-primary" onClick={onEnterStudio}>Перейти в студию <ArrowRight size={17} /></button>;
+  const primaryAction = step < 6 ? <button className="learn-primary" onClick={passed ? () => moveToStep(step + 1, runningRef.current) : begin}>{passed ? <Check size={17} /> : cameraStatus === "loading" ? <LoaderCircle className="spin" size={17} /> : <Hand size={17} />}{passed ? "Следующее упражнение" : cameraStatus === "loading" ? "Отменить подключение" : active ? "Начать попытку заново" : cameraStatus === "ready" ? "Теперь мой ход" : "Попробовать с камерой"}</button> : <button className="learn-primary" onClick={() => onEnterStudio(coursePassed)}>Перейти в студию <ArrowRight size={17} /></button>;
 
   return <div className="learning-page">
     <header className="learning-header">
       <a className="learning-brand" href="/" aria-label="AxiomPitch — на главную"><PitchBrand /></a>
       <span className="learning-header-title">Обучение жестам</span>
-      <a className="learn-exit" href="/studio" onClick={event => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); onEnterStudio(); } }}>В студию <ArrowRight size={16} /></a>
+      <a className="learn-exit" href="/studio" onClick={event => { if (!event.ctrlKey && !event.metaKey && !event.shiftKey && !event.altKey) { event.preventDefault(); onEnterStudio(coursePassed); } }}>В студию <ArrowRight size={16} /></a>
     </header>
     <main className="learning-main">
       <div className="learning-course-heading"><span>6 ПРОСТЫХ УПРАЖНЕНИЙ</span><span>{verified.size} из 6 выполнено</span></div>
@@ -251,7 +259,7 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: () => void }) {
         </section>
         <aside className="learning-instructions" aria-label="Как выполнить упражнение"><TeachingCompanion key={`${step}-${replay}-${demoSequence}`} gesture={expected} playing={!active && !passed && step < 6} /><div className="learning-instruction-heading"><span>{step < 6 ? "КАК СДЕЛАТЬ" : "ЧТО ДАЛЬШЕ"}</span><span>{holdStep ? "1,5 сек." : "Одна ладонь"}</span></div><ol>{instructions.map((instruction, i) => <li key={`${step}-${i}`}><span>{i + 1}</span><p>{instruction}</p></li>)}</ol>
           {step === 5 && <div className="learning-sequence" aria-label="Последовательность мини-репетиции">{["Вперёд", "Вперёд", "Назад"].map((label, i) => <span key={i} className={i < practice.sequence ? "done" : i === (active || passed ? practice.sequence : demoSequence) ? "current" : ""}>{i < practice.sequence ? <Check size={14} /> : i === 2 ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}{label}</span>)}</div>}
-          <div className="learning-actions">{step < 6 ? <>{primaryAction}<button className="learn-secondary" onClick={showExample}><RotateCcw size={15} />Повторить пример</button>{running && <button className="learn-next-example" onClick={pausePractice}>Приостановить практику</button>}</> : <><button className="learn-primary" onClick={onEnterStudio}>Перейти в студию <ArrowRight size={17} /></button><button className="learn-secondary" onClick={() => { setVerified(new Set()); chooseStep(0); }}>Пройти ещё раз</button></>}</div><p className="learning-privacy">Камера остаётся на устройстве.</p>
+          <div className="learning-actions">{step < 6 ? <>{primaryAction}<button className="learn-secondary" onClick={showExample}><RotateCcw size={15} />Повторить пример</button>{running && <button className="learn-next-example" onClick={pausePractice}>Приостановить практику</button>}</> : <><button className="learn-primary" onClick={() => onEnterStudio(coursePassed)}>Перейти в студию <ArrowRight size={17} /></button><button className="learn-secondary" onClick={() => { setVerified(new Set()); chooseStep(0); }}>Пройти ещё раз</button></>}</div><p className="learning-privacy">Камера остаётся на устройстве.</p>
         </aside>
       </div>
     </main>

@@ -15,6 +15,7 @@ import type { Route } from "./http.ts";
 import { controlRoutes } from "./routes/control.ts";
 import { presentationRoutes } from "./routes/presentations.ts";
 import { sessionRoutes } from "./routes/sessions.ts";
+import { profileRoutes } from "./routes/profiles.ts";
 import { LiveHub } from "./ws.ts";
 
 /** Vite dev (5173) and vite preview (4173) only. */
@@ -46,7 +47,7 @@ export function createApp(options: AppOptions) {
       void bridge.handleCommand(command.gesture, command.locked);
     },
     onSession: (session) =>
-      pitchflow.mirror({
+      session.stage !== "checking" && pitchflow.mirror({
         slideIndex: session.index,
         slideCount: session.slideCount,
       }),
@@ -69,6 +70,7 @@ export function createApp(options: AppOptions) {
     "pitchflow",
   );
   const routes: Route[] = [
+    profileRoutes(store),
     presentationRoutes(store),
     sessionRoutes(store),
     controlRoutes(bridge, hub, () => system.apps()),
@@ -86,9 +88,9 @@ export function createApp(options: AppOptions) {
     if (req.method === "OPTIONS") {
       res.setHeader(
         "access-control-allow-methods",
-        "GET, POST, PATCH, DELETE, OPTIONS",
+        "GET, POST, PUT, PATCH, DELETE, OPTIONS",
       );
-      res.setHeader("access-control-allow-headers", "content-type");
+      res.setHeader("access-control-allow-headers", "content-type, x-axiom-profile");
       res.setHeader("access-control-max-age", "600");
       res.statusCode = 204;
       return res.end();

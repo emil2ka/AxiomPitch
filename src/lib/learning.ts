@@ -1,5 +1,5 @@
-import { isOpenPalm, isVisibleHand, releasedPalm } from "./gestures.ts";
-import type { Feedback, Gesture, Point } from "./types.ts";
+import { GestureEngine, isOpenPalm, isVisibleHand, releasedPalm } from "./gestures.ts";
+import type { Feedback, Gesture, Point, VisionFrame } from "./types.ts";
 
 export const lessons = [
   { label: "Знакомство", title: "Привет. Начнём\nс тебя.", description: "Покажи открытую ладонь. Голова и плечи для управления не нужны.", cue: "Покажи открытую ладонь", motion: "hello", expected: null },
@@ -22,13 +22,61 @@ export function expectedGesture(step: number, sequence: number): Gesture | null 
 /** A stationary palm should not teach a hold during a swipe exercise. */
 export function practiceFeedback(step: number, sequence: number, feedback: Feedback): Feedback {
   const expected = expectedGesture(step, sequence);
-  if ((feedback.kind === "progress" && expected !== "toggle") ||
+  if ((feedback.kind === "progress" && feedback.progressGesture !== expected) ||
       (feedback.kind === "success" && feedback.gesture !== expected))
     return { kind: "idle", message: expected === "next"
       ? "Ладонь вижу. Теперь проведи её вправо →"
       : expected === "previous" ? "Ладонь вижу. Теперь проведи её влево ←"
       : "Держи открытую ладонь неподвижно 1,5 секунды." };
   return feedback;
+}
+
+type PracticeHand = { engine: GestureEngine; x: number; y: number; label: string; seen: number };
+/** Each visible hand uses the presentation recognizer, with only the lesson's
+ * command enabled. A still second palm cannot hide the one doing the exercise. */
+export class LearningGestureEngine {
+  private hands: PracticeHand[] = [];
+  private sensitivity = .85;
+  reset() { this.hands = []; }
+  setSensitivity(value: number) {
+    this.sensitivity = value;
+    this.hands.forEach(hand => hand.engine.setSensitivity(value));
+  }
+  update(frame: VisionFrame, expected: Gesture, locked: boolean): Feedback {
+    const candidates = frame.hands.flatMap((points, i) => isVisibleHand(points)
+      ? [{ points, x: points[9].x, y: points[9].y,
+        label: (frame.handScores?.[i] ?? 1) >= .65 ? frame.handLabels?.[i] ?? "" : "" }]
+      : []);
+    // Duplicate/uncertain handedness must fall back to spatial continuity.
+    const duplicateLabels = new Set(candidates.filter(candidate => candidate.label && candidates.filter(hand => hand.label === candidate.label).length > 1).map(candidate => candidate.label));
+    for (const candidate of candidates)
+      if (duplicateLabels.has(candidate.label)) candidate.label = "";
+    this.hands = this.hands.filter(hand => frame.time - hand.seen <= 10000);
+    const available = new Set(this.hands);
+    const results: Feedback[] = [];
+    for (const candidate of candidates) {
+      const labelled = candidate.label && [...available].find(hand => hand.label === candidate.label);
+      const nearest = [...available].sort((a, b) =>
+        Math.hypot(a.x - candidate.x, a.y - candidate.y) - Math.hypot(b.x - candidate.x, b.y - candidate.y))[0];
+      let tracked = labelled || (nearest && ((candidates.length === 1 && available.size === 1) || Math.hypot(nearest.x - candidate.x, nearest.y - candidate.y) < .35) ? nearest : null);
+      if (!tracked) {
+        tracked = { engine: new GestureEngine(), x: candidate.x, y: candidate.y, label: candidate.label, seen: frame.time };
+        tracked.engine.setSensitivity(this.sensitivity);
+        this.hands.push(tracked);
+      }
+      available.delete(tracked);
+      tracked.x = candidate.x; tracked.y = candidate.y; tracked.seen = frame.time;
+      if (candidate.label) tracked.label = candidate.label;
+      results.push(tracked.engine.update(frame.pose, [candidate.points], frame.time, locked, frame.aspect, [expected]));
+    }
+    for (const missing of available) missing.engine.update(frame.pose, [], frame.time, locked, frame.aspect, [expected]);
+    // Advance at most once per camera frame even if both hands complete it.
+    return results.find(result => result.kind === "success")
+      ?? results.filter(result => result.kind === "progress" && result.progressGesture === expected).sort((a, b) => (b.progress ?? 0) - (a.progress ?? 0))[0]
+      ?? results.find(result => result.kind === "error")
+      ?? results.find(result => result.message !== "Покажи открытую ладонь камере")
+      ?? { kind: "idle", message: "Покажи открытую ладонь целиком" };
+  }
 }
 export function applyPracticeGesture(step: number, state: Practice, gesture: Gesture): Practice {
   if (state.passed || gesture !== expectedGesture(step, state.sequence)) return state;

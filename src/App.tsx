@@ -13,13 +13,13 @@ import {
   ArrowRight,
   Camera,
   CameraOff,
+  LoaderCircle,
+  Check,
+  ScanLine,
   ChevronRight,
   Clock3,
   FileUp,
-  Hand,
-  LoaderCircle,
   LockKeyhole,
-  LogOut,
   Monitor,
   Pause,
   Play,
@@ -28,19 +28,27 @@ import {
   RotateCcw,
   SlidersHorizontal,
   Square,
-  UnlockKeyhole,
   X,
 } from "lucide-react";
 import { motion, useReducedMotion } from "motion/react";
 import { Audience } from "./components/Audience";
 import { flushSync } from "react-dom";
 import { Landing } from "./components/Landing";
-import { PixelCompanion } from "./components/PixelCompanion";
-import type { CompanionAction } from "./components/PixelCompanion";
 import { StudioSidebar } from "./components/StudioSidebar";
+import type { StudioView } from "./components/StudioSidebar";
+import { PerformanceScreen } from "./components/PerformanceScreen";
+import { TestPage } from "./components/TestPage";
+import "./show-modes.css";
+import { ProfilePage } from "./components/ProfilePage";
+import { HistoryPage } from "./components/HistoryPage";
+import { Avatar } from "./components/Avatar";
+import { CameraPreview } from "./components/CameraPreview";
+import { loadWorkspace, saveWorkspace } from "./lib/workspace";
 import "./studio.css";
 import "./speaker-transition.css";
 import "./bridge-controls.css";
+import "./workspace-ux.css";
+import "./studio-scene.css";
 
 import { SlideView } from "./components/SlideView";
 import { useCamera } from "./hooks/useCamera";
@@ -49,6 +57,8 @@ import {
   apiEnabled,
   saveNotes,
   saveSession,
+  listSessions,
+  request,
   uploadPresentation,
 } from "./lib/api";
 import { BridgeClient, followTarget, isExternal } from "./lib/bridge-client";
@@ -59,13 +69,15 @@ import type {
   TargetInfo,
   TargetStatus,
 } from "./lib/bridge-client";
-import { clearAccount, loadAccount, markLearned } from "./lib/account";
+import { signOut, loadAccount, loadSavedAccount, markLearned, profileStorage, listAccounts, cacheAccounts, resumeAccount } from "./lib/account";
 import { demoSlides, formatTime, readPdf } from "./lib/deck";
 import { GestureEngine } from "./lib/gestures";
+import { databaseProfile, databaseProfiles, databasePreferences, syncProfile, linkLegacyData, saveDatabasePreferences, saveDatabaseWorkspace } from "./lib/profile-db";
+import type { DatabaseProfile } from "./lib/profile-db";
+import { newPreflight, recordPreflight } from "./lib/preflight";
 import { SessionClock } from "./lib/session";
 import type {
   Feedback,
-  Gesture,
   SessionResult,
   Slide,
   VisionFrame,
@@ -76,7 +88,7 @@ const LoginPage = lazy(() => import("./components/LoginPage").then(module => ({ 
 const LearningPage = lazy(() => import("./components/LearningPage").then(module => ({ default: module.LearningPage })));
 const CompanionPreview = lazy(() => import("./components/CompanionPreview").then(module => ({ default: module.CompanionPreview })));
 
-type Stage = "idle" | "running" | "paused" | "finished";
+type Stage = "idle" | "running" | "paused" | "finished" | "checking";
 type GestureDebug = {
   hands: number;
   open: number;
@@ -113,7 +125,7 @@ const correctionNames: Record<string, string> = {
   steady: "Ладонь двигалась при удержании",
 };
 const targetNames: Record<TargetId, string> = {
-  pitchflow: "PitchFlow (эта колода)",
+  pitchflow: "AxiomPitch · эта презентация",
   keynote: "Keynote",
   powerpoint: "PowerPoint",
   chrome: "Google Slides в Chrome",
@@ -137,27 +149,57 @@ function describeTarget(status: TargetStatus | null, estimated: boolean) {
 }
 
 function Presenter() {
+  const [account, setAccount] = useState(() => loadAccount());
+  const accountId = account?.id;
+  const [storage] = useState(() => profileStorage(accountId ?? "guest"));
+  const initialPreferences = useRef(Object.fromEntries(databasePreferences.map(key => [key, storage.getItem(key)])));
+  const [workspaceReady, setWorkspaceReady] = useState(() => !accountId);
+  const [workspaceError, setWorkspaceError] = useState("");
+  const [cameraId, setCameraId] = useState(() => storage.getItem("axiompitch-camera") || "");
+  type SettingsTab = "camera" | "companion" | "advanced";
+  const readSettingsTab = (): SettingsTab => {
+    const value = new URLSearchParams(location.search).get("section");
+    return value === "companion" || value === "advanced" ? value : "camera";
+  };
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>(readSettingsTab);
+  const [setupOpen, setSetupOpen] = useState(false);
+  const [welcome, setWelcome] = useState(() => new URLSearchParams(location.search).has("welcome"));
+  const [overlayPreview, setOverlayPreview] = useState(false);
+  const previewDialog = useRef<HTMLDialogElement>(null);
+  const readView = useCallback((): StudioView => {
+    const query = new URLSearchParams(location.search);
+    const value = query.get("view");
+    return query.has("history") || value === "history" ? "history" : value === "profile" ? "profile" : value === "settings" ? "settings" : value === "test" ? "test" : value === "present" ? "present" : "deck";
+  }, []);
   const [slides, setSlides] = useState<Slide[]>(demoSlides);
   const [deckName, setDeckName] = useState("Первый питч");
   const [index, setIndex] = useState(0);
   const [mode, setMode] = useState<"rehearsal" | "live">("rehearsal");
   const [stage, setStage] = useState<Stage>("idle");
+  const [preflight, setPreflight] = useState(newPreflight);
+  const beforeCheck = useRef<Stage>("idle");
   const [locked, setLocked] = useState(false);
   const [feedback, setFeedback] = useState<Feedback>({
     kind: "idle",
     message: "Включи камеру, чтобы оживить аватара",
   });
   const [duration, setDuration] = useState(0);
-  const [target, setTarget] = useState(5);
-  const [result, setResult] = useState<SessionResult | null>(null);
+  const [target, setTarget] = useState(() => Math.max(1, Math.min(120, Number(storage.getItem("axiompitch-target-duration")) || 5)));
+  const [databaseReady, setDatabaseReady] = useState(false);
+  const [databaseError, setDatabaseError] = useState("");
+  const [profileStats, setProfileStats] = useState<DatabaseProfile["stats"] | null>(null);
+  const [databaseRetry, setDatabaseRetry] = useState(0);
+  const restoreFromDatabase = useRef(false);
+  const [notchScale, setNotchScale] = useState(() => { const value = Number(storage.getItem("axiompitch-notch-scale")); return [0.85, 1, 1.2].includes(value) ? value : 1; });
+  const [lastResult, setResult] = useState<SessionResult | null>(null);
+  const [selectedResult, setSelectedResult] = useState<SessionResult | null>(null);
+  const result = selectedResult ?? lastResult;
   const [resultsOpen, setResultsOpen] = useState(false);
-  const [historyOpen, setHistoryOpen] = useState(
-    () => new URLSearchParams(location.search).get("history") === "1",
-  );
+  const [resultArchive, setResultArchive] = useState(false);
   const [history, setHistory] = useState<SessionResult[]>(() => {
     try {
       const saved: unknown = JSON.parse(
-        localStorage.getItem("axiompitch-history") || "[]",
+        storage.getItem("axiompitch-history") || "[]",
       );
       return Array.isArray(saved)
         ? saved
@@ -179,7 +221,7 @@ function Presenter() {
   const [notice, setNotice] = useState("");
   const [sensitivity, setSensitivity] = useState(() => {
     try {
-      const saved = Number(localStorage.getItem("axiompitch-sensitivity"));
+      const saved = Number(storage.getItem("axiompitch-sensitivity"));
       return Number.isFinite(saved) && saved >= 0.55 && saved <= 1.15
         ? saved
         : 0.85;
@@ -187,12 +229,21 @@ function Presenter() {
       return 0.85;
     }
   });
-  const [view, setView] = useState<"deck" | "settings">(() =>
-    new URLSearchParams(location.search).get("view") === "settings"
-      ? "settings"
-      : "deck",
-  );
-  const [account] = useState(() => loadAccount());
+  const [view, setView] = useState<StudioView>(() => { const initial = readView(); return initial === "present" ? "deck" : initial; });
+  const navigate = useCallback((next: StudioView, section?: SettingsTab) => {
+    const url = new URL(location.href);
+    url.searchParams.delete("view"); url.searchParams.delete("history"); url.searchParams.delete("welcome");
+    url.searchParams.delete("section");
+    if (next !== "deck") url.searchParams.set("view", next);
+    if (next === "settings") {
+      url.searchParams.set("section", section ?? settingsTab);
+      if (section) setSettingsTab(section);
+    }
+    window.history.pushState(null, "", url);
+    setView(next);
+    window.scrollTo({ top: 0 });
+    requestAnimationFrame(() => document.querySelector<HTMLElement>(".studio-main > section:not([hidden]) h1, .studio-main > div:not([hidden]) section h1")?.focus());
+  }, [settingsTab]);
   const [calibration, setCalibration] = useState<CalibrationState | null>(null);
   const calibrationRef = useRef<CalibrationState | null>(null);
   const calibrationEngine = useRef(new GestureEngine());
@@ -202,7 +253,7 @@ function Presenter() {
   const calibrationLogAt = useRef(0);
   const [debugGestures, setDebugGestures] = useState(() => {
     try {
-      return localStorage.getItem("axiompitch-gesture-debug") === "1";
+      return storage.getItem("axiompitch-gesture-debug") === "1";
     } catch {
       return false;
     }
@@ -217,18 +268,15 @@ function Presenter() {
   useEffect(() => {
     debugGesturesRef.current = debugGestures;
     try {
-      localStorage.setItem(
+      storage.setItem(
         "axiompitch-gesture-debug",
         debugGestures ? "1" : "0",
       );
     } catch {
       // Private mode: keep the flag for this tab only.
     }
-  }, [debugGestures]);
+  }, [debugGestures, storage]);
   const [audienceOpen, setAudienceOpen] = useState(false);
-  const [pulse, setPulse] = useState<{ id: number; gesture: Gesture } | null>(
-    null,
-  );
   const [bridgeOnline, setBridgeOnline] = useState(false);
   const [slideTarget, setSlideTarget] = useState<TargetStatus | null>(null);
   const [targetList, setTargetList] = useState<TargetInfo[]>([]);
@@ -240,9 +288,9 @@ function Presenter() {
   const [presentationId, setPresentationId] = useState<string | null>(null);
   const [externalIndex, setExternalIndex] = useState(0);
   const [pdfMatches, setPdfMatches] = useState(false);
-  const [notchEnabled, setNotchEnabled] = useState(() => localStorage.getItem("axiompitch-notch") !== "off");
+  const [notchEnabled, setNotchEnabled] = useState(() => storage.getItem("axiompitch-notch") !== "off");
   const [notchDisplay, setNotchDisplay] = useState<number | null>(() => {
-    const saved = localStorage.getItem("axiompitch-notch-display");
+    const saved = storage.getItem("axiompitch-notch-display");
     return saved && Number.isSafeInteger(Number(saved)) ? Number(saved) : null;
   });
   const [displays, setDisplays] = useState<DisplayInfo[]>([]);
@@ -267,7 +315,6 @@ function Presenter() {
   const audienceSession = useRef(crypto.randomUUID());
   const inputRef = useRef<HTMLInputElement>(null);
   const dialogRef = useRef<HTMLDialogElement>(null);
-  const historyDialogRef = useRef<HTMLDialogElement>(null);
   const successUntil = useRef(0);
   const correctionLast = useRef<Record<string, number>>({});
   const current = useRef({
@@ -284,7 +331,7 @@ function Presenter() {
       slides,
       index,
       locked,
-          stage,
+      stage,
       mode,
       external,
       externalReady,
@@ -294,6 +341,7 @@ function Presenter() {
 
   const goTo = useCallback((next: number) => {
     const state = current.current;
+    if (state.stage === "checking") return;
     const safe = Math.max(0, Math.min(state.slides.length - 1, next));
     if (!state.external) session.current?.changeSlide(safe, performance.now());
     current.current.index = safe;
@@ -309,6 +357,7 @@ function Presenter() {
   /** Keyboard and buttons: into the connected app, else through the deck. */
   const step = useCallback(
     (gesture: "next" | "previous") => {
+      if (current.current.stage === "checking") return;
       const client = bridge.current;
       if (current.current.external) {
         if (!client?.online || !current.current.externalReady) { setNotice("Внешний показ недоступен. Проверь подключение и приложение."); return; }
@@ -450,9 +499,13 @@ function Presenter() {
     calibrationEngine.current.reset();
     updateCalibration(null);
   };
-  const logout = () => {
-    clearAccount();
-    window.location.assign("/register");
+  const logout = async (create = false) => {
+    if (["running", "paused", "checking"].includes(current.current.stage)) { setNotice("Сначала заверши выступление."); return; }
+    try {
+      await persistCurrentWorkspace();
+      signOut();
+      window.location.assign(create ? "/register" : "/login");
+    } catch { setNotice("Не удалось сохранить данные перед выходом. Проверь доступное место и повтори."); }
   };
 
   const onFrame = useCallback(
@@ -464,7 +517,8 @@ function Presenter() {
         return;
       }
       const state = current.current;
-      if (state.stage !== "running") return;
+      if (state.stage !== "running" && state.stage !== "checking") return;
+      if (state.stage === "checking" && frame.hands.length) setPreflight(previous => previous.hand ? previous : { ...previous, hand: true });
       const nextFeedback = engine.current.update(
         frame.pose,
         frame.hands,
@@ -502,6 +556,15 @@ function Presenter() {
       }
       if (nextFeedback.kind === "success" && nextFeedback.gesture) {
         const gesture = nextFeedback.gesture;
+        if (state.stage === "checking") {
+          const nextLocked = gesture === "toggle" ? !state.locked : state.locked;
+          if (gesture === "toggle") applyLock(nextLocked);
+          setPreflight(previous => recordPreflight(previous, nextFeedback, nextLocked));
+          nextFeedback.message = gesture === "toggle" ? nextLocked ? "Блокировка работает" : "Жесты снова включены" : gesture === "next" ? "Свайп вправо работает" : "Свайп влево работает";
+          successUntil.current = frame.time + 1200;
+          setFeedback(nextFeedback);
+          return;
+        }
         if (gesture === "toggle") {
           // Toggle only locks gestures here; it is never sent to the slide app.
           const nextLocked = !state.locked;
@@ -523,7 +586,6 @@ function Presenter() {
         }
         if (state.stage === "running" && session.current)
           session.current.commands[gesture]++;
-        setPulse({ id: Date.now(), gesture });
         successUntil.current = frame.time + 1200;
         setFeedback(nextFeedback);
         return;
@@ -559,20 +621,21 @@ function Presenter() {
     status: cameraStatus,
     error: cameraError,
     fps: cameraFps,
+    devices: cameraDevices,
     videoRef,
     start: cameraStart,
     stop: cameraStop,
-  } = useCamera(onFrame);
+  } = useCamera(onFrame, cameraId);
 
   useEffect(() => {
     try {
-      localStorage.setItem("axiompitch-sensitivity", String(sensitivity));
+      storage.setItem("axiompitch-sensitivity", String(sensitivity));
     } catch {
       // Private mode: keep the value for this tab only.
     }
     engine.current.setSensitivity(sensitivity);
     calibrationEngine.current.setSensitivity(sensitivity);
-  }, [sensitivity]);
+  }, [sensitivity, storage]);
   useEffect(() => {
     if (stage !== "running") return;
     const timer = setInterval(() => {
@@ -587,7 +650,8 @@ function Presenter() {
         (event.target instanceof HTMLElement &&
           /INPUT|TEXTAREA|SELECT/.test(event.target.tagName)) ||
         dialogRef.current?.open ||
-        historyDialogRef.current?.open ||
+        (view !== "deck" && view !== "present") ||
+        previewDialog.current?.open ||
         calibrationDialogRef.current?.open
       )
         return;
@@ -602,7 +666,7 @@ function Presenter() {
     };
     window.addEventListener("keydown", keydown);
     return () => window.removeEventListener("keydown", keydown);
-  }, [step]);
+  }, [step, view]);
   const refreshTargets = useCallback(() => {
     bridge.current
       ?.targets()
@@ -643,19 +707,22 @@ function Presenter() {
     const publish = () => bridge.current?.publishSession({
       stage, mode, index: shownIndex,
       slideCount: Math.max(shownIndex + 1, shownCount ?? 0),
-      durationMs: session.current?.duration ?? 0,
+      durationMs: stage === "checking" ? 0 : session.current?.duration ?? 0,
       id: sessionMeta.current.id,
-      overlayEnabled: notchEnabled,
+      overlayEnabled: stage === "checking" || notchEnabled,
       overlayDisplayId: notchDisplay,
+      overlayScale: notchScale,
     });
     publish();
     const heartbeat = setInterval(publish, 1000);
     return () => clearInterval(heartbeat);
-  }, [stage, mode, shownIndex, shownCount, bridgeOnline, notchEnabled, notchDisplay]);
+  }, [stage, mode, shownIndex, shownCount, bridgeOnline, notchEnabled, notchDisplay, notchScale]);
   useEffect(() => {
-    localStorage.setItem("axiompitch-notch", notchEnabled ? "on" : "off");
-    localStorage.setItem("axiompitch-notch-display", notchDisplay === null ? "" : String(notchDisplay));
-  }, [notchEnabled, notchDisplay]);
+    try {
+      storage.setItem("axiompitch-notch", notchEnabled ? "on" : "off");
+      storage.setItem("axiompitch-notch-display", notchDisplay === null ? "" : String(notchDisplay));
+    } catch { queueMicrotask(() => setWorkspaceError("Браузер не смог сохранить настройки.")); }
+  }, [notchEnabled, notchDisplay, storage]);
   useEffect(() => {
     if (!bridgeOnline) return;
     let cancelled = false;
@@ -681,15 +748,21 @@ function Presenter() {
     if (external && pdfMatches && externalIndex < slides.length) goTo(externalIndex);
   }, [external, pdfMatches, externalIndex, slides.length, goTo]);
   useEffect(() => {
-    if (!presentationId) return;
+    if (!presentationId || !databaseReady) return;
     const timer = setTimeout(() => {
       saveNotes(
         presentationId,
         slides.map((slide) => slide.notes),
-      ).catch(() => undefined);
+      ).catch(error => setDatabaseError(error instanceof Error ? error.message : "Не удалось сохранить заметки в базе."));
     }, 800);
     return () => clearTimeout(timer);
-  }, [slides, presentationId]);
+  }, [slides, presentationId, databaseReady]);
+  useEffect(() => {
+    if (view !== "profile" || !databaseReady || !accountId || !bridgeOnline) return;
+    let cancelled = false;
+    void databaseProfile(accountId).then(profile => { if (!cancelled) setProfileStats(profile.stats); }).catch(() => undefined);
+    return () => { cancelled = true; };
+  }, [view, databaseReady, accountId, bridgeOnline]);
   useEffect(() => {
     channel.current?.postMessage({ type: "slide", slide: slides[index] });
   }, [slides, index]);
@@ -716,10 +789,6 @@ function Presenter() {
     else dialogRef.current?.close();
   }, [resultsOpen]);
   useEffect(() => {
-    if (historyOpen) historyDialogRef.current?.showModal();
-    else historyDialogRef.current?.close();
-  }, [historyOpen]);
-  useEffect(() => {
     const dialog = calibrationDialogRef.current;
     if (!dialog) return;
     if (calibration && !dialog.open) dialog.showModal();
@@ -731,9 +800,141 @@ function Presenter() {
     return () => clearTimeout(timer);
   }, [notice]);
 
+  useEffect(() => {
+    let cancelled = false;
+    if (!accountId) return;
+    void loadWorkspace(accountId).then(saved => {
+      if (cancelled) return;
+      restoreFromDatabase.current = !saved;
+      if (saved) { setSlides(saved.slides); setDeckName(saved.name); setIndex(saved.index); setPresentationId(saved.presentationId); }
+    }).catch(() => { if (!cancelled) setWorkspaceError("Презентация доступна в этой вкладке, но браузер не разрешает сохранять её между открытиями."); })
+      .finally(() => { if (!cancelled) setWorkspaceReady(true); });
+    return () => { cancelled = true; };
+  }, [accountId]);
+  const workspaceSnapshot = useRef({ slides, name: deckName, index, presentationId });
+  const readyToSave = useRef(false);
+  const historySnapshot = useRef(history);
+  useLayoutEffect(() => {
+    historySnapshot.current = history;
+    workspaceSnapshot.current = { slides, name: deckName, index, presentationId };
+    readyToSave.current = workspaceReady && !(restoreFromDatabase.current && apiEnabled && bridgeOnline && !databaseReady && !databaseError);
+  }, [slides, deckName, index, presentationId, workspaceReady, bridgeOnline, databaseReady, databaseError, history]);
+  useEffect(() => {
+    if (!apiEnabled || !account || !bridgeOnline || !workspaceReady) return;
+    let cancelled = false;
+    const snapshot = workspaceSnapshot.current;
+    const savedHistory = historySnapshot.current;
+    const unchanged = () => workspaceSnapshot.current.slides === snapshot.slides && workspaceSnapshot.current.name === snapshot.name && workspaceSnapshot.current.index === snapshot.index;
+    const connect = async () => {
+      try {
+        await syncProfile(account);
+        if (cancelled) return;
+        setDatabaseError("");
+        await linkLegacyData(account.id, snapshot.presentationId, savedHistory.map(item => item.id));
+        const remote = await databaseProfile(account.id);
+        if (cancelled) return;
+        for (const key of databasePreferences) if (initialPreferences.current[key] === null && remote.preferences[key] !== undefined) storage.setItem(key, remote.preferences[key]);
+        const size = Number(storage.getItem("axiompitch-notch-scale"));
+        setNotchScale([.85, 1, 1.2].includes(size) ? size : 1);
+        setNotchEnabled(storage.getItem("axiompitch-notch") !== "off");
+        const display = storage.getItem("axiompitch-notch-display");
+        setNotchDisplay(display && Number.isInteger(Number(display)) ? Number(display) : null);
+        const range = Number(storage.getItem("axiompitch-sensitivity"));
+        setSensitivity(range >= .55 && range <= 1.15 ? range : .85);
+        setTarget(Math.max(1, Math.min(120, Number(storage.getItem("axiompitch-target-duration")) || 5)));
+        const browserProfiles = await databaseProfiles();
+        if (cancelled) return;
+        cacheAccounts(browserProfiles.items);
+        // Older offline rehearsals join the database once; duplicate IDs are retained.
+        for (const item of savedHistory) await saveSession(item, null, account.id).catch(error => { if (!String(error).includes("уже сохранена")) throw error; });
+        const sessions = await listSessions(10, 0, account.id);
+        if (cancelled) return;
+        setHistory(previous => {
+          const merged = [...new Map([...sessions.items, ...previous].map(item => [item.id, item])).values()].sort((a, b) => b.startedAt.localeCompare(a.startedAt)).slice(0, 10);
+          storage.setItem("axiompitch-history", JSON.stringify(merged));
+          return merged;
+        });
+        setProfileStats((await databaseProfile(account.id)).stats);
+        if (restoreFromDatabase.current && remote.workspace && unchanged()) {
+          const workspace = remote.workspace;
+          if (workspace.presentationId) {
+            setPdfProgress(0);
+            try {
+              const response = await fetch(`${apiBase}/api/presentations/${encodeURIComponent(workspace.presentationId)}/file?profile=${encodeURIComponent(account.id)}`, { signal: AbortSignal.timeout(30000) });
+              if (!response.ok) throw new Error("Не удалось восстановить PDF из базы.");
+              const restored = await readPdf(new File([await response.blob()], `${workspace.name}.pdf`, { type: "application/pdf" }), value => { if (!cancelled) setPdfProgress(value); });
+              const presentation = await request<{ notes: string[] }>(`/api/presentations/${encodeURIComponent(workspace.presentationId)}`);
+              if (!cancelled && unchanged()) {
+                setSlides(restored.map((slide, i) => ({ ...slide, notes: presentation?.notes[i] ?? "" })));
+                setDeckName(workspace.name); setIndex(Math.min(workspace.index, restored.length - 1)); setPresentationId(workspace.presentationId);
+              }
+            } finally { if (!cancelled) setPdfProgress(null); }
+          } else if (workspace.kind === "demo" || (!workspace.kind && workspace.name === "Первый питч")) { setDeckName(workspace.name); setIndex(Math.min(workspace.index, demoSlides.length - 1)); }
+          else { setNotice("Этот PDF был сохранён только в прежнем браузере. Загрузи оригинал снова, чтобы добавить его в базу."); }
+          restoreFromDatabase.current = false;
+        }
+        if (!cancelled) setDatabaseReady(true);
+      } catch (failure) {
+        if (!cancelled) { setDatabaseReady(false); setDatabaseError(failure instanceof Error ? failure.message : "База недоступна. Данные сохраняются в браузере."); }
+      }
+    };
+    void connect();
+    return () => { cancelled = true; };
+  }, [account, storage, bridgeOnline, workspaceReady, databaseRetry]);
+  const persistCurrentWorkspace = async () => {
+    if (!accountId || !readyToSave.current) return;
+    const snapshot = workspaceSnapshot.current;
+    await saveWorkspace(accountId, snapshot);
+    if (databaseReady && bridgeOnline) {
+      if (snapshot.presentationId) await saveNotes(snapshot.presentationId, snapshot.slides.map(slide => slide.notes));
+      await saveDatabaseWorkspace(accountId, { name: snapshot.name, index: snapshot.index, presentationId: snapshot.presentationId, kind: snapshot.slides.some(slide => !!slide.image) ? "pdf" : "demo" });
+      await saveDatabasePreferences();
+    }
+  };
+  const switchProfile = async (id: string) => {
+    if (isSession || id === accountId) return;
+    try { await persistCurrentWorkspace(); if (!resumeAccount(id)) throw new Error("Профиль не найден."); window.location.assign("/studio?view=profile"); }
+    catch (failure) { setNotice(failure instanceof Error ? failure.message : "Не удалось переключить профиль."); }
+  };
+  useEffect(() => {
+    if (!databaseReady || !bridgeOnline || !accountId || pdfProgress !== null) return;
+    const timer = setTimeout(() => { void saveDatabaseWorkspace(accountId, { name: deckName, index, presentationId, kind: slides.some(slide => !!slide.image) ? "pdf" : "demo" }).catch((failure: Error) => setDatabaseError(failure.message)); }, 800);
+    return () => clearTimeout(timer);
+  }, [databaseReady, bridgeOnline, accountId, deckName, index, presentationId, pdfProgress, slides]);
+  useEffect(() => {
+    try {
+      storage.setItem("axiompitch-notch-scale", String(notchScale));
+      storage.setItem("axiompitch-target-duration", String(target));
+    } catch { /* Existing browser save status reports storage failures. */ }
+    if (!databaseReady || !bridgeOnline) return;
+    const timer = setTimeout(() => { void saveDatabasePreferences().catch((failure: Error) => setDatabaseError(failure.message)); }, 500);
+    return () => clearTimeout(timer);
+  }, [notchScale, target, notchEnabled, notchDisplay, sensitivity, databaseReady, bridgeOnline, storage]);
+  useEffect(() => {
+    if (!workspaceReady || !accountId || (restoreFromDatabase.current && apiEnabled && bridgeOnline && !databaseReady && !databaseError)) return;
+    const timer = setTimeout(() => {
+      void saveWorkspace(accountId!, workspaceSnapshot.current).catch(() => setWorkspaceError("Не удалось сохранить презентацию и заметки. Они доступны до закрытия вкладки."));
+    }, 500);
+    return () => clearTimeout(timer);
+  }, [workspaceReady, accountId, slides, deckName, index, presentationId, bridgeOnline, databaseReady, databaseError]);
+  useEffect(() => {
+    const flush = () => {
+      if (readyToSave.current && accountId) void saveWorkspace(accountId!, workspaceSnapshot.current).catch(() => undefined);
+    };
+    window.addEventListener("pagehide", flush);
+    return () => { window.removeEventListener("pagehide", flush); flush(); };
+  }, [accountId]);
+  useEffect(() => {
+    try { storage.setItem("axiompitch-camera", cameraId); } catch { /* Keep current selection in memory. */ }
+  }, [cameraId, storage]);
+  useEffect(() => {
+    if (overlayPreview) previewDialog.current?.showModal(); else previewDialog.current?.close();
+  }, [overlayPreview]);
+
   const upload = async (file?: File) => {
     if (!file) return;
-    if (stage === "running" || stage === "paused") {
+    restoreFromDatabase.current = false;
+    if (["running", "paused", "checking"].includes(stage)) {
       setNotice("Сначала заверши текущее выступление.");
       return;
     }
@@ -750,10 +951,10 @@ function Presenter() {
       setDuration(0);
       engine.current.reset();
       setPresentationId(null);
-      if (apiEnabled) {
+      if (apiEnabled && account) {
         // A server copy is extra: the deck above is already read locally.
         const token = ++uploadToken.current;
-        uploadPresentation(file)
+        syncProfile(account).then(() => uploadPresentation(file, account.id))
           .then((stored) => {
             if (uploadToken.current === token) setPresentationId(stored.id);
           })
@@ -771,18 +972,40 @@ function Presenter() {
       if (inputRef.current) inputRef.current.value = "";
     }
   };
+  const resetGestures = useCallback(() => {
+    engine.current.reset();
+    applyLock(false);
+  }, [applyLock]);
+  const startCheck = () => {
+    if (["running", "paused"].includes(current.current.stage)) return;
+    if (current.current.stage === "checking") { setPreflight(newPreflight()); resetGestures(); navigate("test"); return; }
+    beforeCheck.current = stage;
+    navigate("test");
+    sessionMeta.current = { id: crypto.randomUUID(), startedAt: new Date().toISOString() };
+    setPreflight(newPreflight());
+    resetGestures();
+    setFeedback({ kind: "idle", message: "Покажи ладонь и попробуй оба свайпа" });
+    successUntil.current = 0;
+    current.current.stage = "checking";
+    setStage("checking");
+    // Immediately establish ownership before a manual show request.
+    bridge.current?.publishSession({ stage: "checking", mode, index: shownIndex, slideCount: Math.max(shownIndex + 1, shownCount ?? 0), durationMs: 0, id: sessionMeta.current.id, overlayEnabled: true, overlayDisplayId: notchDisplay, overlayScale: notchScale });
+  };
+  const finishCheck = useCallback(() => {
+    resetGestures();
+    current.current.stage = beforeCheck.current;
+    setStage(beforeCheck.current);
+    setFeedback({ kind: "idle", message: "Проверка завершена" });
+    // No SessionClock, results, history entry or external slide command.
+    bridge.current?.publishSession({ stage: beforeCheck.current, mode, index: shownIndex, slideCount: Math.max(shownIndex + 1, shownCount ?? 0), durationMs: session.current?.duration ?? 0, id: sessionMeta.current.id, overlayEnabled: notchEnabled, overlayDisplayId: notchDisplay, overlayScale: notchScale });
+  }, [resetGestures, mode, shownIndex, shownCount, notchEnabled, notchDisplay, notchScale]);
+  const toggleOverlay = () => {
+    if (!bridge.current?.online || !shellConnected) { navigate("settings", "companion"); return; }
+    if (!overlayVisible && !["running", "paused", "checking"].includes(stage)) { startCheck(); return; }
+    bridge.current.setOverlay(!overlayVisible, notchDisplay, notchScale).then(state => setOverlayVisible(state.visible)).catch((error: Error) => setNotice(error.message));
+  };
   const openAudience = () => {
-    const client = bridge.current;
-    if (external) {
-      if (!notchEnabled) { setNotice("Чёлка отключена в настройках. Внешним показом можно управлять без неё."); return; }
-      if (stage !== "running" && stage !== "paused") { setNotice("Чёлка появится при начале выступления."); return; }
-      if (!client?.online) { setNotice("Нет связи с локальным мостом."); return; }
-      client.setOverlay(!overlayVisible, notchDisplay).then(state => {
-        setOverlayVisible(state.visible);
-        if (state.visible && !state.shellConnected) setNotice("Окно чёлки не запущено. Управление слайдами продолжает работать.");
-      }).catch((error: Error) => setNotice(error.message));
-      return;
-    }
+    if (external) { toggleOverlay(); return; }
     if (audienceWindow.current && !audienceWindow.current.closed) {
       audienceWindow.current.focus();
       return;
@@ -833,8 +1056,10 @@ function Presenter() {
     engine.current.reset();
     bridge.current?.publishCommand("toggle", false);
     channel.current?.postMessage({ type: "slide", slide: slides[index] });
+    navigate("present");
+    if (!external) void document.documentElement.requestFullscreen?.().catch(() => undefined);
   };
-  const pauseSession = () => {
+  const pauseSession = useCallback(() => {
     if (stage === "running") {
       session.current?.pause(performance.now());
       setDuration(session.current?.duration ?? 0);
@@ -845,11 +1070,15 @@ function Presenter() {
       session.current?.resume(performance.now());
       setStage("running");
       current.current.stage = "running";
+      navigate("present");
+      if (!external) void document.documentElement.requestFullscreen?.().catch(() => undefined);
       engine.current.reset();
     }
-  };
+  }, [stage, navigate, external]);
   const finishSession = () => {
     if (!session.current) return;
+    if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+    navigate("deck");
     const completed = session.current.result(
       {
         ...sessionMeta.current,
@@ -861,6 +1090,8 @@ function Presenter() {
       },
       performance.now(),
     );
+    setSelectedResult(null);
+    setResultArchive(false);
     setResult(completed);
     setDuration(completed.duration);
     setStage("finished");
@@ -869,7 +1100,7 @@ function Presenter() {
     const nextHistory = [completed, ...history].slice(0, 10);
     setHistory(nextHistory);
     try {
-      localStorage.setItem("axiompitch-history", JSON.stringify(nextHistory));
+      storage.setItem("axiompitch-history", JSON.stringify(nextHistory));
     } catch {
       setNotice(
         "Итоги готовы, но браузер не смог сохранить историю на этом устройстве.",
@@ -877,14 +1108,10 @@ function Presenter() {
     }
     // The server keeps a copy; the local history above stays the primary one.
     if (apiEnabled)
-      saveSession(completed, external && !pdfMatches ? null : presentationId).catch((error) =>
+      (account ? syncProfile(account) : Promise.resolve()).then(() => saveSession(completed, external && !pdfMatches ? null : presentationId, account?.id)).catch((error) =>
         console.warn("PitchFlow server:", error),
       );
     channel.current?.postMessage({ type: "end" });
-  };
-  const resetGestures = () => {
-    engine.current.reset();
-    applyLock(false);
   };
   const downloadResult = () => {
     if (!result) return;
@@ -903,68 +1130,75 @@ function Presenter() {
         i === index ? { ...slide, notes: text } : slide,
       ),
     );
-  const isSession = stage === "running" || stage === "paused";
+  const isSession = stage === "running" || stage === "paused" || stage === "checking";
   const progress = Math.min(1, duration / (target * 60000));
   const totalCommands = result
     ? Object.values(result.commands).reduce((a, b) => a + b, 0)
     : 0;
   const statusText = describeTarget(slideTarget, estimated);
-  // The companion reflects the live gesture state instead of standing still.
-  const coachAction: CompanionAction =
-    stage === "finished"
-      ? "success"
-      : pulse
-        ? pulse.gesture === "toggle"
-          ? "hold"
-          : pulse.gesture
-        : feedback.code === "palm"
-          ? "open-palm"
-          : feedback.code
-            ? "point"
-            : feedback.kind === "progress"
-              ? "hold"
-              : cameraStatus === "ready"
-                ? "hello"
-                : "idle";
   const coachMessage =
-    stage === "running"
+    stage === "checking"
+      ? cameraStatus !== "ready" ? "Включи камеру — проверим жесты"
+        : locked ? "Опусти руку и повтори удержание"
+        : !preflight.hand ? "Покажи открытую ладонь"
+        : !preflight.next ? "Проведи ладонью вправо"
+        : !preflight.previous ? "Теперь ладонью влево"
+        : !preflight.lock ? "Удержи ладонь 1,5 секунды"
+        : !preflight.unlock ? "Опусти руку и повтори удержание"
+        : !overlayVisible || !shellConnected || !bridgeOnline ? "Осталось проверить чёлку"
+        : "Всё готово к выходу"
+      : stage === "running"
       ? locked
-        ? "Слайды на паузе — удержи ладонь, чтобы вернуть управление."
-        : "Слушаю жест: ладонь вправо — дальше, влево — назад."
+        ? "Жесты на паузе"
+        : "Готов к твоему движению"
       : stage === "paused"
-        ? "Пауза. Продолжим, когда будешь готов."
+        ? "Отдыхаем. Я рядом"
         : stage === "finished"
-          ? "Готово. Открой итоги — там время и команды."
+          ? "Выступление завершено"
           : cameraStatus === "ready"
-            ? "Камера видит тебя. Начни репетицию — я подскажу жест."
-            : "Включи камеру — и я стану твоим пультом.";
-  const coachProgress =
-    stage === "running" && feedback.progress !== undefined
-      ? feedback.progress
-      : null;
+            ? "Готов к выходу"
+            : "Я рядом, когда понадоблюсь";
+  useEffect(() => {
+    const sync = () => {
+      const next = readView();
+      if (next !== "present" && current.current.stage === "running") pauseSession();
+      if (next === "deck" && current.current.stage === "checking") finishCheck();
+      if (next !== "present" && document.fullscreenElement) void document.exitFullscreen().catch(() => undefined);
+      setView(next === "present" && !["running", "paused"].includes(current.current.stage) ? "deck" : next);
+      setSettingsTab(readSettingsTab());
+    };
+    window.addEventListener("popstate", sync);
+    return () => window.removeEventListener("popstate", sync);
+  }, [readView, pauseSession, finishCheck]);
 
   return (
-    <main className={`studio studio-${stage}`}>
-      <StudioSidebar
+    <main className={`studio studio-${stage} ${view === "present" ? "is-presenting" : ""}`} data-workspace-ready={workspaceReady}>
+      {view !== "present" && <StudioSidebar
         active={view}
-        onNavigate={setView}
-        onHistory={() => setHistoryOpen(true)}
-      />
+        onNavigate={next => { if (stage === "checking" && next === "deck") finishCheck(); navigate(next); }}
+        account={account}
+        sessionActive={isSession}
+      />}
+      <video ref={videoRef} className="camera-source" playsInline muted aria-hidden="true" />
       <div className="studio-main">
+        {isSession && view !== "present" && view !== "test" && <div className="session-return" role="status"><span>{stage === "checking" ? "Идёт проверка" : stage === "paused" ? "Сессия на паузе" : "Идёт выступление"} · {formatTime(duration)}</span><button className="text-button" onClick={() => navigate(stage === "checking" ? "test" : "present")}>{stage === "checking" ? "Вернуться к тесту" : "Вернуться к выступлению"} <ArrowRight size={16} /></button>{stage === "checking" && <button className="text-button" onClick={finishCheck}>Завершить проверку</button>}</div>}
+        {notice && <div className="notice" role="alert"><span>{notice}</span><button className="icon-button" aria-label="Закрыть сообщение" onClick={() => setNotice("")}><X size={16} /></button></div>}
+        {workspaceError && <p className="workspace-save-error" role="status">{workspaceError}</p>}
         <div className="studio-deck" hidden={view !== "deck"}>
       <div className="workspace-heading">
         <div className="studio-title">
-          <h1>{external ? slideTarget?.label || "Внешний показ" : deckName}</h1>
-          <p>{external ? `${shownCount ?? "?"} ${slidesWord(shownCount)} · Внешнее приложение` : `${slides.length} ${slidesWord(slides.length)} · ${slides[0]?.image ? "Твой PDF" : "Демо-презентация"}`}</p>
+          <h1 tabIndex={-1}>Студия</h1>
+          <p>{external ? slideTarget?.label || "Внешний показ" : deckName} · {external ? shownCount ?? "?" : slides.length} {slidesWord(external ? shownCount : slides.length)}</p>
         </div>
         <div className="deck-actions">
+          <button className="button primary studio-mobile-session" disabled={pdfProgress !== null || !workspaceReady} onClick={() => stage === "checking" ? finishCheck() : isSession ? pauseSession() : startSession()}>{stage === "running" ? <Pause size={16} /> : <Play size={16} />}{stage === "checking" ? "Завершить проверку" : stage === "running" ? "Пауза" : stage === "paused" ? "Продолжить" : "Начать"}</button>
           <button
             className={`button secondary ${audienceOpen || overlayVisible ? "selected" : ""}`}
             onClick={openAudience}
-            aria-label={external ? overlayVisible ? "Скрыть чёлку" : "Показать чёлку" : audienceOpen ? "Экран открыт" : "Экран аудитории"}
+            aria-label={external ? overlayVisible ? "Скрыть компаньона" : "Показать компаньона" : audienceOpen ? "Экран открыт" : "Второй экран"}
           >
             <Monitor size={16} />
-            <span>{external ? overlayVisible ? "Скрыть чёлку" : "Показать чёлку" : audienceOpen ? "Экран открыт" : "Экран аудитории"}</span>
+            <span>{external ? overlayVisible ? "Скрыть компаньона" : "Показать компаньона" : audienceOpen ? "Экран открыт" : "Второй экран"}</span>
           </button>
           <input
             type="file"
@@ -978,7 +1212,7 @@ function Presenter() {
           <button
             className="button secondary"
             onClick={() => inputRef.current?.click()}
-            disabled={isSession || pdfProgress !== null}
+            disabled={isSession || pdfProgress !== null || !workspaceReady}
           >
             <FileUp size={17} />
             {pdfProgress !== null
@@ -987,252 +1221,20 @@ function Presenter() {
           </button>
         </div>
       </div>
-      {notice && (
-        <div className="notice" role="alert">
-          <span>{notice}</span>
-          <button
-            className="icon-button"
-            aria-label="Закрыть сообщение"
-            onClick={() => setNotice("")}
-          >
-            <X size={16} />
-          </button>
-        </div>
-      )}
-      <div className={`workspace-grid ${external && !pdfMatches ? "external-without-preview" : ""}`}>
-        <div className="stage-left">
-          <section className="timer-panel">
-            <div className="panel-heading">
-              <Clock3 size={17} />
-              <span>Твой ритм</span>
-              <span className={`session-state ${stage}`}>
-                {stage === "running"
-                  ? "ИДЁТ"
-                  : stage === "paused"
-                    ? "ПАУЗА"
-                    : stage === "finished"
-                      ? "ИТОГИ"
-                      : "ГОТОВ"}
-              </span>
-            </div>
-            <div
-              className={`timer ${duration > target * 60000 ? "overtime" : ""}`}
-            >
-              {formatTime(duration)}
-              <span>/ {String(target).padStart(2, "0")}:00</span>
-            </div>
-            <div className="timer-track">
-              <span style={{ width: `${progress * 100}%` }} />
-            </div>
-            <div className="timer-settings">
-              <label htmlFor="target-time">Лимит, минут</label>
-              <input
-                id="target-time"
-                type="number"
-                min={1}
-                max={120}
-                value={target}
-                disabled={isSession}
-                onChange={(event) =>
-                  setTarget(
-                    Math.max(1, Math.min(120, Number(event.target.value) || 1)),
-                  )
-                }
-              />
-            </div>
-            <div className="mode-switch" aria-label="Режим выступления">
-              <button
-                aria-pressed={mode === "rehearsal"}
-                disabled={isSession}
-                className={mode === "rehearsal" ? "active" : ""}
-                onClick={() => setMode("rehearsal")}
-              >
-                Репетиция
-              </button>
-              <button
-                aria-pressed={mode === "live"}
-                disabled={isSession}
-                className={mode === "live" ? "active" : ""}
-                onClick={() => setMode("live")}
-              >
-                Выступление
-              </button>
-            </div>
-            {isSession ? (
-              <div className="session-buttons">
-                <button className="button secondary" onClick={pauseSession}>
-                  {stage === "running" ? (
-                    <Pause size={17} />
-                  ) : (
-                    <Play size={17} />
-                  )}
-                  {stage === "running" ? "Пауза" : "Продолжить"}
-                </button>
-                <button className="button primary" onClick={finishSession}>
-                  <Square size={14} />
-                  Завершить
-                </button>
-              </div>
-            ) : (
-              <button
-                className="button primary full"
-                onClick={startSession}
-                disabled={pdfProgress !== null}
-              >
-                <Play size={17} />
-                {stage === "finished" ? "Попробовать ещё раз" : mode === "rehearsal" ? "Начать репетицию" : "Начать выступление"}
-              </button>
-            )}
-            {stage === "finished" && (
-              <button
-                className="text-button"
-                onClick={() => setResultsOpen(true)}
-              >
-                Посмотреть итоги <ChevronRight size={15} />
-              </button>
-            )}
-          </section>
-        </div>
-        <div className="stage-column">
-        <section className="stage-panel" aria-label="Презентация">
-          {previewAvailable ? <motion.div
-            className="slide-frame"
-            key={slides[index].id}
-            initial={reducedMotion ? false : { opacity: 0.5, y: 5 }}
-            animate={{ opacity: 1, y: 0 }}
-            transition={{ duration: 0.2 }}
-          >
-            <SlideView slide={slides[index]} />
-          </motion.div> : <div className="external-show-placeholder slide-frame">
-            <Presentation size={32} />
-            <strong>{slideTarget?.label || "Внешний показ"} · {estimated ? "≈ " : ""}слайд {externalIndex + 1}</strong>
-            <p>{pdfMatches ? "Для этого слайда нет страницы в загруженном PDF." : "Презентация открыта во внешнем приложении. Загрузи соответствующий PDF, если нужны превью и заметки."}</p>
-          </div>}
-          <div className="slide-transport">
-            <div className="transport-buttons">
-              <button
-                className="icon-button"
-                title="Предыдущий слайд (←)"
-                aria-label="Предыдущий слайд"
-                disabled={!external && index === 0}
-                onClick={() => step("previous")}
-              >
-                <ArrowLeft size={20} />
-              </button>
-              <button
-                className="icon-button"
-                title="Следующий слайд (→)"
-                aria-label="Следующий слайд"
-                disabled={!external && index === slides.length - 1}
-                onClick={() => step("next")}
-              >
-                <ArrowRight size={20} />
-              </button>
-            </div>
-            <span className="slide-counter" title={external && estimated ? "Оценочный номер: приложение не сообщает позицию" : undefined}>
-              {external && estimated ? "≈ " : ""}
-              {String(shownIndex + 1).padStart(2, "0")}{" "}
-              <span>/ {shownCount === null || shownCount === undefined ? "?" : String(shownCount).padStart(2, "0")}</span>
-            </span>
-          </div>
-          {previewAvailable && <div className="below-slide">
-            <div className="notes-panel">
-              <label htmlFor="speaker-notes">
-                <SlidersHorizontal size={16} />
-                Твоя главная мысль
-              </label>
-              <textarea
-                id="speaker-notes"
-                value={slides[index].notes}
-                onChange={(event) => updateNote(event.target.value)}
-                placeholder="Твоя главная мысль на этом слайде…"
-                rows={3}
-              />
-            </div>
-          </div>}
-        </section>
-        <nav className="studio-filmstrip" aria-label="Все слайды презентации" hidden={external && !pdfMatches}>
-          <div className="studio-thumbnails">{slides.map((slide, i) => <button key={slide.id} className={`studio-thumbnail ${i === shownIndex ? "active" : ""}`} disabled={external} onClick={() => goTo(i)} aria-label={`Перейти к слайду ${i + 1}: ${slide.title.replace(/\n/g, " ")}`} aria-current={i === shownIndex ? "step" : undefined}><SlideView slide={slide} small /><span className="studio-thumbnail-caption"><span>{String(i + 1).padStart(2, "0")}</span>{i === shownIndex && <span className="studio-thumbnail-current" />}</span></button>)}</div>
-        </nav>
-        </div>
-        <aside className="control-panel">
-          <div className="studio-coach">
-            <PixelCompanion action={coachAction} replay={pulse?.id ?? 0} />
-            <div className="coach-copy">
-              <p>{coachMessage}</p>
-              {coachProgress !== null && <span className="coach-progress"><i style={{ width: `${Math.round(coachProgress * 100)}%` }} /></span>}
-            </div>
-          </div>
-          {apiEnabled && (
-            <section className="show-line">
-              <div className="panel-heading"><Presentation size={15} strokeWidth={1.6} /><span>Показ</span></div>
-              <p
-                className={`show-status ${slideTarget?.error ? "error" : ""}`}
-                title={
-                  external &&
-                  (slideTarget?.app === "chrome" ||
-                    slideTarget?.app === "frontmost")
-                    ? "Окно презентации должно быть впереди, иначе стрелки не уйдут"
-                    : undefined
-                }
-              >
-                {external
-                  ? slideTarget?.error ?? statusText
-                  : bridgeOnline
-                    ? "Слайды листаются в этой вкладке"
-                    : "Мост не запущен"}
-              </p>
-              <button className="text-button" onClick={() => setView("settings")}>
-                {external ? "Настроить внешний показ" : "Подключить внешний показ"} <ChevronRight size={15} />
-              </button>
-            </section>
-          )}
+      {welcome && <section className="welcome-line"><div><strong>Твоё пространство готово</strong><p>Начни с демо или загрузи PDF.</p></div><a className="button secondary" href="/learn" aria-disabled={isSession || undefined} onClick={event => { if (isSession) { event.preventDefault(); setNotice("Сначала заверши выступление, чтобы перейти к обучению."); } }}>Изучить жесты</a><button className="icon-button" aria-label="Скрыть приветствие" onClick={() => { setWelcome(false); const url = new URL(location.href); url.searchParams.delete("welcome"); window.history.replaceState(null, "", url); }}><X size={16} /></button></section>}
 
-          <section className="camera-panel">
-            <div className="panel-heading"><Camera size={15} strokeWidth={1.6} /><span>Камера</span><small>{cameraStatus === "ready" ? `${cameraFps} FPS` : cameraStatus === "loading" ? "подключение" : "выключена"}</small></div>
-            <div className={`studio-camera-preview ${cameraStatus === "ready" ? "is-live" : ""}`}>
-              <video ref={videoRef} playsInline muted aria-hidden={cameraStatus !== "ready"} aria-label="Зеркальное превью камеры" />
-              {cameraStatus !== "ready" && <div className="studio-camera-placeholder"><Camera size={22} strokeWidth={1.2} /><span>{cameraStatus === "loading" ? "Подключаем камеру…" : "Включи камеру, чтобы управлять жестами"}</span></div>}
-              {cameraStatus === "ready" && <span className="studio-camera-live">{locked ? "Жесты на паузе" : stage === "running" ? "Управление активно" : "Камера готова"}</span>}
-            </div>
-            <button className="button secondary full" onClick={() => {
-              if (cameraStatus === "ready" || cameraStatus === "loading") cameraStop();
-              else { resetGestures(); void cameraStart(); }
-            }}>{cameraStatus === "loading" ? <LoaderCircle className="spin" size={15} /> : cameraStatus === "ready" ? <CameraOff size={15} /> : <Camera size={15} />}{cameraStatus === "loading" ? "Отменить" : cameraStatus === "ready" ? "Выключить камеру" : "Включить камеру"}</button>
-            {cameraError && <p className="camera-error" role="alert">{cameraError}</p>}
-            {stage === "running" && cameraStatus === "ready" && <p className={`studio-live-feedback ${feedback.kind}`} role="status">{feedback.message}</p>}
-            {debugGestures && (
-              <div className="studio-debug">
-                {gestureDebug ? (<>
-                  <span>Руки: {gestureDebug.hands} · открытых: {gestureDebug.open} · ладонь: {(gestureDebug.scale * 100).toFixed(1)}%</span>
-                  <span>dx: {gestureDebug.dx >= 0 ? "+" : ""}{gestureDebug.dx.toFixed(2)} · dy: {gestureDebug.dy >= 0 ? "+" : ""}{gestureDebug.dy.toFixed(2)} · t: {(gestureDebug.elapsed / 1000).toFixed(1)} с · порог: {gestureDebug.threshold.toFixed(2)}</span>
-                  <span>Движок: {gestureDebug.locked ? "заблокирован" : "активен"} · ответ: {gestureDebug.kind}{gestureDebug.code ? ` · ${gestureDebug.code}` : ""}</span>
-                  <div className="studio-debug-log">{debugLog.length ? debugLog.map((entry, i) => <span key={`${entry.code}-${i}`}>{entry.message}</span>) : <span>Журнал пока пуст</span>}</div>
-                </>) : <span>Отладка включена. Начни репетицию и покажи ладонь — здесь появятся цифры.</span>}
-              </div>
-            )}
-          </section>
-        </aside>
-      </div>
-      <footer className="workspace-footer">
-        <span>
-          <LockKeyhole size={13} />
-          Камера и PDF остаются на устройстве
-        </span>
-        <span>
-          {cameraStatus === "ready"
-            ? overlayVisible ? "Зрители видят презентацию и чёлку" : "Зрители видят только презентацию"
-            : "Можно начать с демо-слайдов или своего PDF"}
-        </span>
-      </footer>
+      <section className="preparation" aria-label="Подготовка к выступлению">
+        <div className="studio-quick-tools">
+          <button onClick={() => setSetupOpen(value => !value)} aria-expanded={setupOpen} aria-controls="show-setup"><Presentation size={15} /><span>{external ? slideTarget?.label || "Внешний показ" : "Показ в AxiomPitch"}</span><ChevronRight size={14} /></button>
+          <button onClick={() => { if (cameraStatus === "ready" || cameraStatus === "loading") cameraStop(); else { resetGestures(); void cameraStart(); } }}><Camera size={15} /><span>{cameraStatus === "ready" ? "Камера включена" : cameraStatus === "loading" ? "Отменить подключение" : "Включить камеру"}</span>{cameraStatus === "ready" && <i className="studio-ready-dot" />}</button>
+          <button aria-pressed={overlayVisible} onClick={toggleOverlay}><Monitor size={15} /><span>{overlayVisible ? "Скрыть чёлку" : !bridgeOnline || !shellConnected ? "Подключить чёлку" : "Показать чёлку"}</span></button>
+          <button className="studio-check-trigger" disabled={isSession || !workspaceReady} onClick={() => navigate("test")}><ScanLine size={15} /><span>Тест</span></button>
         </div>
-        <section className="settings-page" hidden={view !== "settings"} aria-labelledby="settings-title">
-          <h1 id="settings-title">Настройки</h1>
-          <p className="settings-page-note">Камера, жесты, чёлка и аккаунт. Всё остаётся на этом устройстве.</p>
-          <div className="settings-grid">
+        <div id="show-setup" className="show-setup" hidden={!setupOpen}>
+          <section className="settings-group"><h2>Презентация</h2><p className="settings-note">Показывай PDF в AxiomPitch или подключи приложение, в котором открыты слайды.</p><button className="button secondary" disabled={isSession || pdfProgress !== null || !workspaceReady} onClick={() => inputRef.current?.click()}><FileUp size={16} />Загрузить PDF</button></section>
             {apiEnabled && (
               <section className="settings-group settings-panel settings-panel-wide">
-                <span className="settings-label">Внешний показ</span>
+                <span className="settings-label">Где показывать презентацию</span>
                 {bridgeOnline ? (
                   <>
                     <div className="target-row">
@@ -1317,7 +1319,7 @@ function Presenter() {
                     {external && <>
                       <button className="text-button" disabled={isSession} onClick={() => {
                         bridge.current?.disconnectTarget().then(status => { applyTarget(status); refreshTargets(); }).catch((error: Error) => setNotice(error.message));
-                      }}>Вернуться к колоде PitchFlow</button>
+                      }}>Показывать в AxiomPitch</button>
                       <label className="bridge-setting"><input type="checkbox" checked={pdfMatches} disabled={isSession || !slides[0]?.image} onChange={event => setPdfMatches(event.target.checked)} />PDF соответствует показу</label>
                       {estimated && <label className="bridge-setting">Начальный номер слайда <input aria-label="Начальный номер внешнего слайда" type="number" min={1} max={2000} disabled={isSession} value={externalIndex + 1} onChange={event => {
                         const value = Math.max(0, Math.min(1999, Number(event.target.value) - 1));
@@ -1327,47 +1329,293 @@ function Presenter() {
                     </>}
                   </>
                 ) : (
-                  <p className="settings-note">Мост не запущен — запусти npm run server, чтобы листать Keynote, PowerPoint и Google Slides.</p>
+                  <><p className="settings-note">Локальное подключение недоступно. PDF можно показывать здесь.</p><details className="connection-help"><summary>Как подключить приложение на Mac</summary><p>Останови отдельный dev-сервер и запусти из папки проекта <code>npm run studio</code> — сайт и чёлка откроются вместе. Разреши управление приложениями в настройках macOS, если система запросит доступ.</p></details></>
                 )}
               </section>
             )}
-            <section className="settings-group settings-panel">
-              <span className="settings-label">Камера и жесты</span>
-              <label className="sensitivity" htmlFor="sensitivity"><span>Размах жеста <span>{sensitivity < .8 ? "малый" : sensitivity > 1 ? "большой" : "обычный"}</span></span><input id="sensitivity" type="range" min={.55} max={1.15} step={.05} value={sensitivity} onChange={event => setSensitivity(Number(event.target.value))} /></label>
-              <button className="text-button" onClick={startCalibration}><SlidersHorizontal size={15} />Калибровка жестов</button>
-              <button className="text-button" onClick={() => { applyLock(!locked); engine.current.reset(); }}>{locked ? <UnlockKeyhole size={15} /> : <LockKeyhole size={15} />}{locked ? "Включить жесты" : "Заблокировать жесты"}</button>
-              <label className="bridge-setting"><input type="checkbox" checked={debugGestures} onChange={event => setDebugGestures(event.target.checked)} />Показывать отладку жестов</label>
+
+          {!apiEnabled && <p className="settings-note">Слайды показываются в AxiomPitch. Внешние приложения доступны с локальным подключением на Mac.</p>}
+          <button className="text-button" onClick={openAudience}>{external ? "Компаньон поверх слайдов" : "Открыть экран аудитории"} <Monitor size={16} /></button>
+        </div>
+      </section>
+      <div className={`workspace-grid ${external && !pdfMatches ? "external-without-preview" : ""}`}>
+        <div className="stage-column">
+        <section className="stage-panel" aria-label="Презентация">
+          {previewAvailable ? <motion.div
+            className="slide-frame"
+            key={slides[index].id}
+            initial={reducedMotion ? false : { opacity: 0.5, y: 5 }}
+            animate={{ opacity: 1, y: 0 }}
+            transition={{ duration: 0.2 }}
+          >
+            <SlideView slide={slides[index]} />
+          </motion.div> : <div className="external-show-placeholder slide-frame">
+            <Presentation size={32} />
+            <strong>{slideTarget?.label || "Внешний показ"} · {estimated ? "≈ " : ""}слайд {externalIndex + 1}</strong>
+            <p>{pdfMatches ? "Для этого слайда нет страницы в загруженном PDF." : "Презентация открыта во внешнем приложении. Загрузи соответствующий PDF, если нужны превью и заметки."}</p>
+          </div>}
+          <div className="slide-transport">
+            <div className="transport-buttons">
+              <button
+                className="icon-button"
+                title="Предыдущий слайд (←)"
+                aria-label="Предыдущий слайд"
+                disabled={stage === "checking" || (!external && index === 0)}
+                onClick={() => step("previous")}
+              >
+                <ArrowLeft size={20} />
+              </button>
+              <button
+                className="icon-button"
+                title="Следующий слайд (→)"
+                aria-label="Следующий слайд"
+                disabled={stage === "checking" || (!external && index === slides.length - 1)}
+                onClick={() => step("next")}
+              >
+                <ArrowRight size={20} />
+              </button>
+            </div>
+            <span className="slide-counter" title={external && estimated ? "Оценочный номер: приложение не сообщает позицию" : undefined}>
+              {external && estimated ? "≈ " : ""}
+              {String(shownIndex + 1).padStart(2, "0")}{" "}
+              <span>/ {shownCount === null || shownCount === undefined ? "?" : String(shownCount).padStart(2, "0")}</span>
+            </span>
+          </div>
+
+        </section>
+        <nav className="studio-filmstrip" aria-label="Все слайды презентации" hidden={external && !pdfMatches}>
+          <div className="studio-thumbnails">{slides.map((slide, i) => <button key={slide.id} className={`studio-thumbnail ${i === shownIndex ? "active" : ""}`} disabled={external || stage === "checking"} onClick={() => goTo(i)} aria-label={`Перейти к слайду ${i + 1}: ${slide.title.replace(/\n/g, " ")}`} aria-current={i === shownIndex ? "step" : undefined}><SlideView slide={slide} small /><span className="studio-thumbnail-caption"><span>{String(i + 1).padStart(2, "0")}</span>{i === shownIndex && <span className="studio-thumbnail-current" />}</span></button>)}</div>
+        </nav>
+          {previewAvailable && <div className="below-slide">
+            <div className="notes-panel">
+              <label htmlFor="speaker-notes">
+                <SlidersHorizontal size={16} />
+                Заметка к слайду
+              </label>
+              <textarea
+                id="speaker-notes"
+                value={slides[index].notes}
+                onChange={(event) => updateNote(event.target.value)}
+                placeholder="Что важно сказать на этом слайде…"
+                rows={3}
+              />
+            </div>
+          </div>}
+        </div>
+        <div className="studio-control-column"><aside className="control-panel">
+          <section className="timer-panel">
+            {stage === "checking" ? <div className="studio-preflight">
+              <div className="panel-heading"><ScanLine size={17} /><span>Проверка перед выходом</span></div>
+              <p className="preflight-note">Без записи в историю. Слайды остаются на месте.</p>
+              <div className="preflight-slide" aria-live="polite"><span>Тестовый слайд</span><strong>{preflight.index + 1}<small> / 3</small></strong></div>
+              <ul className="preflight-list">
+                {[
+                  ["Камера", cameraStatus === "ready"],
+                  ["Ладонь в кадре", cameraStatus === "ready" && preflight.hand],
+                  ["Свайп вправо", preflight.next],
+                  ["Свайп влево", preflight.previous],
+                  ["Удержание 1,5 с · блокировка", preflight.lock],
+                  ["Ещё удержание · включение", preflight.unlock],
+                  ["Чёлка на экране", bridgeOnline && shellConnected && overlayVisible],
+                ].map(([label, done]) => <li key={String(label)} className={done ? "done" : ""}>{done ? <Check size={14} /> : <span className="preflight-dot" />}<span>{label}</span></li>)}
+              </ul>
+              <button className="button primary full" onClick={finishCheck}>Завершить проверку</button>
+            </div> : <>
+            <div className="panel-heading">
+              <Clock3 size={17} />
+              <span>Выступление</span>
+              <span className={`session-state ${stage}`}>
+                {stage === "running"
+                  ? "ИДЁТ"
+                  : stage === "paused"
+                    ? "ПАУЗА"
+                    : stage === "finished"
+                      ? "ИТОГИ"
+                      : "ГОТОВ"}
+              </span>
+            </div>
+            <div
+              className={`timer ${duration > target * 60000 ? "overtime" : ""}`}
+            >
+              {formatTime(duration)}
+              <span>/ {String(target).padStart(2, "0")}:00</span>
+            </div>
+            <div className="timer-track">
+              <span style={{ width: `${progress * 100}%` }} />
+            </div>
+            <div className="timer-settings">
+              <label htmlFor="target-time">Лимит, минут</label>
+              <input
+                id="target-time"
+                type="number"
+                min={1}
+                max={120}
+                value={target}
+                disabled={isSession}
+                onChange={(event) =>
+                  setTarget(
+                    Math.max(1, Math.min(120, Number(event.target.value) || 1)),
+                  )
+                }
+              />
+            </div>
+            <div className="mode-switch" aria-label="Режим выступления">
+              <button
+                aria-pressed={mode === "rehearsal"}
+                disabled={isSession}
+                className={mode === "rehearsal" ? "active" : ""}
+                onClick={() => setMode("rehearsal")}
+              >
+                Репетиция
+              </button>
+              <button
+                aria-pressed={mode === "live"}
+                disabled={isSession}
+                className={mode === "live" ? "active" : ""}
+                onClick={() => setMode("live")}
+              >
+                Выступление
+              </button>
+            </div>
+            {isSession ? (
+              <div className="session-buttons">
+                <button className="button secondary" onClick={pauseSession}>
+                  {stage === "running" ? (
+                    <Pause size={17} />
+                  ) : (
+                    <Play size={17} />
+                  )}
+                  {stage === "running" ? "Пауза" : "Продолжить"}
+                </button>
+                <button className="button primary" onClick={finishSession}>
+                  <Square size={14} />
+                  Завершить
+                </button>
+              </div>
+            ) : (
+              <button
+                className="button primary full"
+                onClick={startSession}
+                disabled={pdfProgress !== null || !workspaceReady}
+              >
+                <Play size={17} />
+                {stage === "finished" ? "Попробовать ещё раз" : mode === "rehearsal" ? "Начать репетицию" : "Начать выступление"}
+              </button>
+            )}
+            {stage === "finished" && (
+              <button
+                className="text-button"
+                onClick={() => setResultsOpen(true)}
+              >
+                Посмотреть итоги <ChevronRight size={15} />
+              </button>
+            )}
+            </>}
+            <p className="studio-equipment-status">{cameraStatus === "ready" ? "Камера готова" : "Камера выключена"} · {bridgeOnline && shellConnected ? "Чёлка подключена" : "Чёлка не подключена"}</p>
+          </section>
+          <section className="camera-panel">
+            <div className="panel-heading"><Camera size={15} /><span>Камера</span><small>{cameraStatus === "ready" ? `${cameraFps} FPS` : cameraStatus === "loading" ? "подключение" : "выключена"}</small></div>
+            <CameraPreview source={videoRef} status={cameraStatus} />
+            <button className="button secondary full" onClick={() => { if (cameraStatus === "ready" || cameraStatus === "loading") cameraStop(); else { resetGestures(); void cameraStart(); } }}>{cameraStatus === "loading" ? <LoaderCircle className="spin" size={15} /> : cameraStatus === "ready" ? <CameraOff size={15} /> : <Camera size={15} />}{cameraStatus === "loading" ? "Отменить" : cameraStatus === "ready" ? "Выключить камеру" : "Включить камеру"}</button>
+            {cameraError && <p className="camera-error" role="alert">{cameraError}</p>}
+            {(stage === "running" || stage === "checking") && cameraStatus === "ready" && <p className={`studio-live-feedback ${feedback.kind}`} role="status">{feedback.message}</p>}
+          </section>
+        </aside></div>
+      </div>
+      <footer className="workspace-footer">
+        <span>
+          <LockKeyhole size={13} />
+          Камера и PDF остаются на устройстве
+        </span>
+        <span>
+          {cameraStatus === "ready"
+            ? overlayVisible ? "Компаньон виден поверх презентации" : "Зрители видят только презентацию"
+            : "Можно начать с демо-слайдов или своего PDF"}
+        </span>
+      </footer>
+        </div>
+        {view === "test" && <TestPage onSlide={index => setPreflight(previous => ({ ...previous, index }))} active={stage === "checking"} busy={stage === "running" || stage === "paused"} ready={workspaceReady} source={videoRef} cameraStatus={cameraStatus} cameraError={cameraError} diagnostic={<>{debugGestures && (
+              <div className="studio-debug">
+                {gestureDebug ? (<>
+                  <span>Руки: {gestureDebug.hands} · открытых: {gestureDebug.open} · ладонь: {(gestureDebug.scale * 100).toFixed(1)}%</span>
+                  <span>dx: {gestureDebug.dx >= 0 ? "+" : ""}{gestureDebug.dx.toFixed(2)} · dy: {gestureDebug.dy >= 0 ? "+" : ""}{gestureDebug.dy.toFixed(2)} · t: {(gestureDebug.elapsed / 1000).toFixed(1)} с · порог: {gestureDebug.threshold.toFixed(2)}</span>
+                  <span>Движок: {gestureDebug.locked ? "заблокирован" : "активен"} · ответ: {gestureDebug.kind}{gestureDebug.code ? ` · ${gestureDebug.code}` : ""}</span>
+                  <div className="studio-debug-log">{debugLog.length ? debugLog.map((entry, i) => <span key={`${entry.code}-${i}`}>{entry.message}</span>) : <span>Журнал пока пуст</span>}</div>
+                </>) : <span>Отладка включена. Начни репетицию и покажи ладонь — здесь появятся цифры.</span>}
+              </div>
+            )}</>} state={preflight} notchConnected={bridgeOnline && shellConnected} notchVisible={overlayVisible} message={coachMessage} onStart={startCheck} onFinish={finishCheck} onCamera={() => { if (cameraStatus === "ready" || cameraStatus === "loading") cameraStop(); else { resetGestures(); void cameraStart(); } }} onNotch={toggleOverlay} onSettings={() => navigate("settings", "companion")} onStudio={() => { if (stage === "checking") finishCheck(); navigate("deck"); }} />}
+        {view === "present" && <PerformanceScreen slide={slides[index]} index={shownIndex} count={shownCount ?? null} duration={duration} paused={stage === "paused"} external={external} onStep={step} onPause={pauseSession} onFinish={finishSession} onStudio={() => { if (stage === "running") pauseSession(); if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); navigate("deck"); }} />}
+        <section className="settings-page" hidden={view !== "settings"} aria-labelledby="settings-title">
+          <h1 id="settings-title" tabIndex={-1}>Настройки</h1>
+          <p className="page-lead">Настрой один раз — сохраним для твоего профиля.</p>
+          <div className="settings-tabs" role="group" aria-label="Разделы настроек">
+            <button aria-pressed={settingsTab === "camera"} onClick={() => navigate("settings", "camera")}>Камера и жесты</button>
+            <button aria-pressed={settingsTab === "companion"} onClick={() => navigate("settings", "companion")}>Чёлка</button>
+            <button aria-pressed={settingsTab === "advanced"} onClick={() => navigate("settings", "advanced")}>Дополнительно</button>
+          </div>
+          <div className="settings-content" hidden={settingsTab !== "camera"}>
+            <section className="settings-group">
+              <h2>Твой кадр</h2><p className="settings-note">Ладонь должна помещаться целиком. Голова и плечи для команд не нужны.</p>
+              <label className="field-label" htmlFor="camera-source">Камера</label>
+              <select id="camera-source" className="settings-select" value={cameraId} disabled={isSession || cameraStatus === "loading"} onChange={event => { cameraStop(); setCameraId(event.target.value); }}>
+                <option value="">Камера по умолчанию</option>
+                {cameraDevices.filter(device => device.deviceId).map((device, i) => <option key={device.deviceId} value={device.deviceId}>{device.label || `Камера ${i + 1}`}</option>)}
+                {cameraId && !cameraDevices.some(device => device.deviceId === cameraId) && <option value={cameraId}>Выбранная камера недоступна</option>}
+              </select>
+              <CameraPreview source={videoRef} status={cameraStatus} />
+              <button className="button secondary" onClick={() => cameraStatus === "off" || cameraStatus === "error" ? void cameraStart() : cameraStop()}>{cameraStatus === "loading" ? "Отменить подключение" : cameraStatus === "ready" ? "Выключить камеру" : "Включить камеру"}</button>
+              {cameraError && <p className="camera-error" role="alert">{cameraError}</p>}
+              {isSession && <p className="settings-note">Камеру можно сменить после завершения выступления.</p>}
             </section>
-            <section className="settings-group settings-panel">
-              <span className="settings-label">Чёлка и экран</span>
-              <label className="bridge-setting"><input type="checkbox" checked={notchEnabled} onChange={event => setNotchEnabled(event.target.checked)} />Использовать чёлку macOS</label>
-              {notchEnabled && <>
-                <label className="bridge-setting bridge-setting-column">Экран чёлки <select aria-label="Экран чёлки" value={notchDisplay ?? "auto"} onChange={event => setNotchDisplay(event.target.value === "auto" ? null : Number(event.target.value))}>
-                  <option value="auto">MacBook / основной экран</option>
-                  {displays.map(display => <option key={display.id} value={display.id}>{display.label}{display.primary ? " · основной" : ""}</option>)}
-                </select></label>
-                <p className="settings-note">{shellConnected ? "Чёлка появится при начале выступления. Крестик скрывает её до следующего." : "Окно чёлки не запущено — студия работает и без него."}</p>
-              </>}
-            </section>
-            <section className="settings-group settings-panel">
-              <span className="settings-label">Памятка</span>
-              <div className="gesture-guide"><div><ArrowRight size={14} /><span>Ладонь вправо</span><span>Далее</span></div><div><ArrowLeft size={14} /><span>Ладонь влево</span><span>Назад</span></div><div><Hand size={14} /><span>Удержать 1,5 сек.</span><span>Блокировка</span></div></div>
-              <a className="studio-learn-link" href="/learn" onClick={event => { if (isSession) { event.preventDefault(); setNotice("Сначала заверши выступление, чтобы перейти к обучению."); } }}>Пройти обучение <ChevronRight size={16} /></a>
-            </section>
-            <section className="settings-group settings-panel">
-              <span className="settings-label">Аккаунт</span>
-              <p className="settings-account"><strong>{account?.name || "Гость"}</strong><small>{account?.email || "Локальный аккаунт не создан"}</small></p>
-              <button className="text-button" onClick={logout}><LogOut size={15} />Выйти из аккаунта</button>
+            <section className="settings-group">
+              <h2>Удобный размах</h2><p className="settings-note">Малый размах — короткое движение. Большой — более заметный жест.</p>
+              <label className="sensitivity" htmlFor="sensitivity"><span>Размах жеста <span>{sensitivity < .8 ? "малый" : sensitivity > 1 ? "большой" : "обычный"}</span></span><input id="sensitivity" type="range" min={.55} max={1.15} step={.05} disabled={isSession} value={sensitivity} onChange={event => setSensitivity(Number(event.target.value))} /></label>
+              <button className="button secondary" disabled={isSession} onClick={startCalibration}>Проверить жесты <ChevronRight size={16} /></button>
+              <p className="settings-note">Проверим ладонь, два свайпа и удержание. Подстроим размах, если нужно.</p>
+              <a className="studio-learn-link" href="/learn" onClick={event => { if (isSession) { event.preventDefault(); setNotice("Обучение доступно после завершения выступления."); } }}>Открыть обучение <ChevronRight size={16} /></a>
             </section>
           </div>
+          <div className="settings-content" hidden={settingsTab !== "companion"}>
+            <section className="settings-group notch-settings">
+              <h2>Чёлка поверх презентации</h2><p className="settings-note">3D-зеркало твоих движений у верхнего края экрана.</p>
+              <p className="companion-status" role="status">{!bridgeOnline ? "Локальное приложение выключено" : !shellConnected ? "Окно чёлки не запущено" : overlayVisible ? "Чёлка видна на экране" : "Чёлка подключена · скрыта"}</p>
+              <div className="notch-sample" aria-label="Предпросмотр размера чёлки"><div className="notch-sample-window" style={{ transform: `scale(${notchScale})` }}>{view === "settings" && settingsTab === "companion" && <Avatar locked={false} headStyle="ghost" face="none" />}</div></div>
+              <div className="notch-size"><span>Размер чёлки</span><div className="notch-size-options" role="group" aria-label="Размер чёлки">{[[.85, "Компактная"], [1, "Обычная"], [1.2, "Крупная"]].map(([size, label]) => <button key={size} aria-pressed={notchScale === size} onClick={() => setNotchScale(Number(size))}>{label}</button>)}</div></div>
+              <label className="field-label" htmlFor="companion-display">На каком экране</label>
+              <select className="settings-select" id="companion-display" value={notchDisplay ?? "auto"} disabled={!bridgeOnline || !shellConnected} onChange={event => setNotchDisplay(event.target.value === "auto" ? null : Number(event.target.value))}>
+                <option value="auto">Автоматически · экран с вырезом / основной</option>
+                {displays.map(display => <option key={display.id} value={display.id}>{display.label}{display.primary ? " · основной" : ""}</option>)}
+                {notchDisplay !== null && !displays.some(display => display.id === notchDisplay) && <option value={notchDisplay}>Выбранный экран не подключён</option>}
+              </select>
+              <label className="preference-switch"><span><strong>Автопоказ чёлки</strong><small>При начале репетиции или выступления</small></span><input type="checkbox" role="switch" checked={notchEnabled} onChange={event => setNotchEnabled(event.target.checked)} /></label>
+              <div className="companion-actions"><button className="button primary" disabled={!bridgeOnline || !shellConnected} onClick={toggleOverlay}>{overlayVisible ? "Скрыть с экрана" : "Показать на экране"}</button><button className="text-button" onClick={() => setOverlayPreview(true)}>Пример движений</button></div>
+              <p className="settings-note">Крестик скрывает чёлку до следующей сессии. Жесты работают и без неё.</p>
+              {!shellConnected && <details className="connection-help"><summary>Подключить чёлку на Mac</summary><p>Останови отдельный dev-сервер и запусти <code>npm run studio</code> из папки проекта.</p></details>}
+            </section>
+          </div>
+          <div className="settings-content" hidden={settingsTab !== "advanced"}>
+            <section className="settings-group"><h2>Диагностика</h2><p className="settings-note">Для разбора проблем с распознаванием. Показатели появятся рядом с камерой в студии.</p>
+              <label className="preference-switch"><span><strong>Показывать диагностику жестов</strong><small>Координаты, порог и журнал подсказок</small></span><input type="checkbox" role="switch" checked={debugGestures} onChange={event => setDebugGestures(event.target.checked)} /></label>
+              <button className="text-button" disabled={isSession} onClick={() => setSensitivity(.85)}>Вернуть обычный размах</button>
+            </section>
+            <section className="settings-group"><h2>Хранение данных</h2><p className="settings-note">Профиль, PDF, история и настройки связаны в локальной базе. При выключенном приложении работа сохраняется в браузере.</p><button className="text-button" onClick={() => navigate("profile")}>Мой профиль <ChevronRight size={16} /></button></section>
+          </div>
         </section>
+        <div hidden={view !== "history"}><HistoryPage history={history} onOpen={item => { setResultArchive(true); setSelectedResult(item); setResultsOpen(true); }} onStudio={() => navigate("deck")} /></div>
+        <div hidden={view !== "profile"}>{account && <ProfilePage browserOnlyPdf={!presentationId && slides.some(slide => !!slide.image)} account={account} onSave={setAccount} onLogout={() => void logout()} onCreate={() => void logout(true)} onSwitch={switchProfile} profiles={listAccounts()} sessionActive={isSession} databaseStatus={databaseReady && !databaseError ? "connected" : !bridgeOnline ? "offline" : databaseError ? "error" : "connecting"} databaseError={databaseError} stats={profileStats} onRetry={() => setDatabaseRetry(value => value + 1)} />}</div>
       </div>
+
+      <dialog ref={previewDialog} className="results-dialog companion-preview-dialog" aria-labelledby="companion-preview-title" onCancel={() => setOverlayPreview(false)} onClose={() => setOverlayPreview(false)}>
+        <div className="dialog-header"><h2 id="companion-preview-title">Компаньон на экране</h2><button className="icon-button" aria-label="Закрыть предпросмотр" onClick={() => setOverlayPreview(false)}><X size={18} /></button></div>
+        <div className="companion-preview-screen"><span>Твоя презентация</span>{overlayPreview && <div className="companion-preview-notch"><Avatar face="none" headStyle="ghost" locked={false} /><button aria-label="Скрыть окно в предпросмотре" onClick={() => setOverlayPreview(false)}><X size={14} /></button></div>}</div>
+        <p className="settings-note">Так выглядит окно у верхнего края экрана. Это предпросмотр в студии; во время сессии аватар повторяет твои движения.</p>
+      </dialog>
       <dialog
         ref={dialogRef}
         className="results-dialog"
         aria-labelledby="results-title"
         onCancel={() => setResultsOpen(false)}
-        onClose={() => setResultsOpen(false)}
+        onClose={() => { setResultsOpen(false); setSelectedResult(null); setResultArchive(false); }}
       >
         {result && (
           <>
@@ -1444,71 +1692,17 @@ function Presenter() {
                 className="button primary"
                 onClick={() => {
                   setResultsOpen(false);
+                  if (resultArchive) { navigate("deck"); return; }
                   setStage("idle");
                   goTo(0);
                   setDuration(0);
                   session.current = null;
                 }}
               >
-                <RotateCcw size={16} />К началу
+                <RotateCcw size={16} />{resultArchive ? "В студию" : "К началу"}
               </button>
             </div>
           </>
-        )}
-      </dialog>
-      <dialog
-        ref={historyDialogRef}
-        className="results-dialog"
-        aria-labelledby="history-title"
-        onCancel={() => setHistoryOpen(false)}
-        onClose={() => setHistoryOpen(false)}
-      >
-        <div className="dialog-header">
-          <div>
-            <span className="section-eyebrow">НА ЭТОМ УСТРОЙСТВЕ</span>
-            <h2 id="history-title">Последние выступления</h2>
-          </div>
-          <button
-            className="icon-button"
-            aria-label="Закрыть историю"
-            onClick={() => setHistoryOpen(false)}
-          >
-            <X size={20} />
-          </button>
-        </div>
-        {history.length === 0 ? (
-          <p className="history-empty">
-            После первого выступления здесь появятся итоги.
-          </p>
-        ) : (
-          history.map((item) => (
-            <button
-              className="history-item"
-              key={item.id}
-              onClick={() => {
-                setHistoryOpen(false);
-                setResult(item);
-                setResultsOpen(true);
-              }}
-            >
-              <span>
-                <strong>{item.name}</strong>
-                <span>
-                  {new Date(item.startedAt).toLocaleString("ru-RU", {
-                    day: "numeric",
-                    month: "short",
-                    hour: "2-digit",
-                    minute: "2-digit",
-                  })}{" "}
-                  · {item.mode === "rehearsal" ? "Репетиция" : "Выступление"}
-                </span>
-              </span>
-              <span>
-                {formatTime(item.duration)}
-                <ChevronRight size={17} />
-              </span>
-            </button>
-          ))
         )}
       </dialog>
       <dialog
@@ -1609,23 +1803,19 @@ export default function App() {
     if (new URLSearchParams(location.search).has("audience")) return;
     const account = loadAccount();
     if ((path === "/learn" || path === "/studio") && !account) {
-      history.replaceState(null, "", "/register");
-      flushSync(() => setPath("/register"));
+      const destination = loadSavedAccount() ? "/login" : "/register";
+      history.replaceState(null, "", destination);
+      flushSync(() => setPath(destination));
       return;
     }
-    if (path === "/register" && account) {
-      history.replaceState(null, "", "/login");
-      flushSync(() => setPath("/login"));
-      return;
-    }
-    if (path === "/studio" && account && !account.learnedAt) {
-      history.replaceState(null, "", "/learn");
-      flushSync(() => setPath("/learn"));
+    if ((path === "/register" || path === "/login") && account) {
+      history.replaceState(null, "", "/studio");
+      flushSync(() => setPath("/studio"));
     }
   }, [path]);
-  const enterStudio = useCallback(() => {
+  const enterStudio = useCallback((completed: boolean) => {
     if (transitioning.current || location.pathname !== "/learn") return;
-    markLearned();
+    if (completed) markLearned();
     transitioning.current = true;
     const navigate = () => {
       history.pushState(null, "", "/studio");
@@ -1658,17 +1848,14 @@ export default function App() {
   ) : path === "/login" ? (
     <Suspense fallback={<div className="companion-loading">Открываем вход…</div>}><LoginPage /></Suspense>
   ) : path === "/learn" ? (
-    // First-run learning is a clean full-screen course; revisits live in the
-    // studio shell so the sidebar navigation is always at hand.
-    loadAccount()?.learnedAt ? (
+    // Learning always shares the navigation; completing it remains optional.
+    (
       <div className="studio studio-learning">
         <StudioSidebar active="learn" />
         <div className="studio-main">
           <Suspense fallback={<div className="companion-loading">Готовим обучение…</div>}><LearningPage onEnterStudio={enterStudio} /></Suspense>
         </div>
       </div>
-    ) : (
-      <Suspense fallback={<div className="companion-loading">Готовим обучение…</div>}><LearningPage onEnterStudio={enterStudio} /></Suspense>
     )
   ) : path === "/companion" ? (
     <Suspense fallback={<div className="companion-loading">Загружаем персонажа…</div>}><CompanionPreview /></Suspense>

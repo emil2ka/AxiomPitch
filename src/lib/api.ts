@@ -1,3 +1,4 @@
+import { loadAccount } from "./account.ts";
 import type { SessionResult } from "./types.ts";
 
 // Undefined outside Vite (node:test imports this module too).
@@ -25,8 +26,12 @@ export async function request<T>(
   init: RequestInit = {},
   base = apiBase,
 ): Promise<T> {
+  const headers = new Headers(init.headers);
+  const account = loadAccount();
+  if (account && !headers.has("x-axiom-profile")) headers.set("x-axiom-profile", account.id);
   const response = await fetch(`${base}${path}`, {
     ...init,
+    headers,
     signal: init.signal ?? AbortSignal.timeout(10000),
   });
   const body: unknown = await response.json().catch(() => null);
@@ -46,11 +51,14 @@ export const jsonBody = (body: unknown, method = "POST"): RequestInit => ({
 });
 
 /** A copy for the server; the tab still renders the PDF itself via readPdf. */
-export function uploadPresentation(file: File) {
+const profileHeaders = (id?: string) => id ? { "x-axiom-profile": id } : undefined;
+
+export function uploadPresentation(file: File, profileId = loadAccount()?.id) {
   const form = new FormData();
   form.append("file", file);
   return request<StoredPresentation>("/api/presentations", {
     method: "POST",
+    headers: profileHeaders(profileId),
     body: form,
     signal: AbortSignal.timeout(60000),
   });
@@ -59,26 +67,27 @@ export function uploadPresentation(file: File) {
 export const listPresentations = () =>
   request<{ items: StoredPresentation[] }>("/api/presentations");
 
-export const saveNotes = (id: string, notes: string[]) =>
+export const saveNotes = (id: string, notes: string[], profileId = loadAccount()?.id) =>
   request<{ id: string; notes: string[] }>(
     `/api/presentations/${id}/notes`,
-    jsonBody({ notes }, "PATCH"),
+    { ...jsonBody({ notes }, "PATCH"), headers: { "content-type": "application/json", ...profileHeaders(profileId) } },
   );
 
 /** Adds to the server history; localStorage stays the source on this device. */
 export const saveSession = (
   result: SessionResult,
   presentationId?: string | null,
+  profileId = loadAccount()?.id,
 ) =>
   request<{ id: string; savedAt: string }>(
     "/api/sessions",
-    jsonBody(presentationId ? { ...result, presentationId } : result),
+    { ...jsonBody(presentationId ? { ...result, presentationId } : result), headers: { "content-type": "application/json", ...profileHeaders(profileId) } },
   );
 
-export const listSessions = (limit = 20, offset = 0) =>
+export const listSessions = (limit = 20, offset = 0, profileId = loadAccount()?.id) =>
   request<{
     items: StoredSession[];
     total: number;
     limit: number;
     offset: number;
-  }>(`/api/sessions?limit=${limit}&offset=${offset}`);
+  }>(`/api/sessions?limit=${limit}&offset=${offset}`, { headers: profileHeaders(profileId) });

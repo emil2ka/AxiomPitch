@@ -15,7 +15,8 @@ const TrackProcessor = (
   globalThis as { MediaStreamTrackProcessor?: TrackProcessor }
 ).MediaStreamTrackProcessor;
 
-export function useCamera(onFrame: (frame: VisionFrame) => void) {
+export function useCamera(onFrame: (frame: VisionFrame) => void, deviceId = "") {
+  const [devices, setDevices] = useState<MediaDeviceInfo[]>([]);
   const [status, setStatus] = useState<CameraStatus>("off");
   const [error, setError] = useState("");
   const [fps, setFps] = useState(0);
@@ -58,6 +59,15 @@ export function useCamera(onFrame: (frame: VisionFrame) => void) {
   }, [cleanup]);
   useEffect(() => cleanup, [cleanup]);
 
+  const refreshDevices = useCallback(async () => {
+    try { setDevices((await navigator.mediaDevices?.enumerateDevices() ?? []).filter(device => device.kind === "videoinput")); } catch { /* Camera errors are reported by start. */ }
+  }, []);
+  useEffect(() => {
+    queueMicrotask(() => { void refreshDevices(); });
+    navigator.mediaDevices?.addEventListener("devicechange", refreshDevices);
+    return () => navigator.mediaDevices?.removeEventListener("devicechange", refreshDevices);
+  }, [refreshDevices]);
+
   const start = useCallback(async () => {
     cleanup();
     const run = generation.current;
@@ -83,7 +93,7 @@ export function useCamera(onFrame: (frame: VisionFrame) => void) {
         video: {
           width: { ideal: 1280 },
           height: { ideal: 720 },
-          facingMode: "user",
+          ...(deviceId ? { deviceId: { exact: deviceId } } : { facingMode: "user" }),
           frameRate: { ideal: 30, max: 60 },
         },
         audio: false,
@@ -93,6 +103,7 @@ export function useCamera(onFrame: (frame: VisionFrame) => void) {
         return;
       }
       streamRef.current = stream;
+      void refreshDevices();
       const video = videoRef.current;
       if (!video) throw new Error("Не удалось открыть камеру.");
       video.srcObject = stream;
@@ -222,6 +233,6 @@ export function useCamera(onFrame: (frame: VisionFrame) => void) {
                 : "Не удалось включить камеру.",
       );
     }
-  }, [cleanup]);
-  return { status, error, fps, videoRef, start, stop };
+  }, [cleanup, deviceId, refreshDevices]);
+  return { status, error, fps, devices, videoRef, start, stop };
 }

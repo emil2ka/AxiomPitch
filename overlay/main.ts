@@ -18,7 +18,7 @@ let pointerTimer: ReturnType<typeof setInterval> | undefined;
 
 let win: BrowserWindow | null = null;
 let socket: WebSocket | null = null;
-let wanted = { visible: false, displayId: null as number | null };
+let wanted = { visible: false, displayId: null as number | null, scale: 1 };
 
 // Not a second app in the Dock next to the speaker console.
 if (process.platform === "darwin") app.setActivationPolicy("accessory");
@@ -41,7 +41,8 @@ function place() {
   const display = pickDisplay(wanted.displayId);
   const { bounds } = display;
   const native = geometry.find(item => item.id === display.id);
-  win.setBounds(notchBounds(bounds, native?.safeTop, native?.center));
+  win.webContents.setZoomFactor(wanted.scale);
+  win.setBounds(notchBounds(bounds, native?.safeTop, native?.center, wanted.scale));
   if (process.env.PITCHFLOW_OVERLAY_DEBUG === "1") console.info("[overlay]", JSON.stringify({ bounds: win.getBounds(), safeTop: native?.safeTop ?? 0, visible: wanted.visible }));
   if (wanted.visible) win.showInactive();
   else win.hide();
@@ -84,6 +85,7 @@ function connect() {
       overlay?: unknown;
       visible?: unknown;
       displayId?: unknown;
+      scale?: unknown;
     };
     try {
       message = JSON.parse(String(event.data));
@@ -96,10 +98,11 @@ function connect() {
         : message.type === "overlay"
           ? message
           : null
-    ) as { visible?: unknown; displayId?: unknown } | null;
+    ) as { visible?: unknown; displayId?: unknown; scale?: unknown } | null;
     if (!overlay) return;
     wanted = {
       visible: overlay.visible === true,
+      scale: typeof overlay.scale === "number" && overlay.scale >= .75 && overlay.scale <= 1.35 ? overlay.scale : 1,
       displayId:
         typeof overlay.displayId === "number" ? overlay.displayId : null,
     };

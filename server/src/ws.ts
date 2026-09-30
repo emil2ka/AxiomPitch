@@ -27,7 +27,7 @@ export type LiveCommand = {
 };
 export type LiveSession = {
   type: "session";
-  stage: "idle" | "running" | "paused" | "finished";
+  stage: "idle" | "running" | "paused" | "finished" | "checking";
   mode: "rehearsal" | "live";
   index: number;
   slideCount: number;
@@ -35,11 +35,13 @@ export type LiveSession = {
   id?: string;
   overlayEnabled?: boolean;
   overlayDisplayId?: number | null;
+  overlayScale?: number;
 };
 export type OverlayState = {
   type: "overlay";
   visible: boolean;
   displayId: number | null;
+  scale: number;
 };
 export type DisplayInfo = {
   id: number;
@@ -137,7 +139,8 @@ export function parseSession(
     (stage !== "idle" &&
       stage !== "running" &&
       stage !== "paused" &&
-      stage !== "finished") ||
+      stage !== "finished" &&
+      stage !== "checking") ||
     (mode !== "rehearsal" && mode !== "live") ||
     !count(slideCount, 2000) ||
     !count(index, Math.max(0, slideCount - 1)) ||
@@ -157,6 +160,10 @@ export function parseSession(
   if (message.overlayDisplayId !== undefined) {
     if (message.overlayDisplayId !== null && !Number.isInteger(message.overlayDisplayId)) return null;
     session.overlayDisplayId = message.overlayDisplayId as number | null;
+  }
+  if (message.overlayScale !== undefined) {
+    if (typeof message.overlayScale !== "number" || !Number.isFinite(message.overlayScale) || message.overlayScale < .75 || message.overlayScale > 1.35) return null;
+    session.overlayScale = message.overlayScale;
   }
   return session;
 }
@@ -196,12 +203,13 @@ export type HubEvents = {
  * bridge publishes target after every step.
  */
 export class LiveHub {
-  overlay: OverlayState = { type: "overlay", visible: false, displayId: null };
+  overlay: OverlayState = { type: "overlay", visible: false, displayId: null, scale: 1 };
   displays: DisplayInfo[] = [];
   private locked = false;
   private session: LiveSession | null = null;
   private owner: WebSocket | null = null;
   private dismissed = false;
+  private explicitlyShown = false;
   private lastSession = 0;
   private watchdog: ReturnType<typeof setInterval>;
   private server = new WebSocketServer({
@@ -260,17 +268,17 @@ export class LiveHub {
     }
   }
 
-  setOverlay(visible: boolean, displayId: number | null) {
+  setOverlay(visible: boolean, displayId: number | null, scale = this.overlay.scale) {
     this.dismissed = !visible;
-    // A closed or disabled session cannot leave a stale floating window.
-    if (this.session?.overlayEnabled !== undefined &&
-        (!this.session.overlayEnabled || !["running", "paused"].includes(this.session.stage))) visible = false;
-    return this.updateOverlay(visible, displayId);
+    // Manual visibility belongs to the active session, independently of auto-show.
+    if (this.session?.overlayEnabled !== undefined && !["running", "paused", "checking"].includes(this.session.stage)) visible = false;
+    this.explicitlyShown = visible;
+    return this.updateOverlay(visible, displayId, scale);
   }
 
-  private updateOverlay(visible: boolean, displayId: number | null) {
-    if (this.overlay.visible === visible && this.overlay.displayId === displayId) return this.overlay;
-    this.overlay = { type: "overlay", visible, displayId };
+  private updateOverlay(visible: boolean, displayId: number | null, scale = this.overlay.scale) {
+    if (this.overlay.visible === visible && this.overlay.displayId === displayId && this.overlay.scale === scale) return this.overlay;
+    this.overlay = { type: "overlay", visible, displayId, scale };
     this.broadcast(this.overlay);
     return this.overlay;
   }
@@ -328,25 +336,32 @@ export class LiveHub {
     // Only the speaker tab may publish; the notch and the shell just listen.
     if (role !== "speaker") return;
     if (message.type === "frame") {
+      if (this.owner && this.owner !== ws) return;
       const frame = parseFrame(message);
       if (frame) this.broadcast(frame, ["overlay"]);
     } else if (message.type === "command") {
+      if (this.owner && this.owner !== ws) return;
       const command = parseCommand(message);
       if (!command) return;
       this.locked = command.locked;
       this.broadcast(command, ["overlay"]);
-      this.events.onCommand?.(command);
+      // Check gestures animate the notch but never control the connected app.
+      if (this.session?.stage !== "checking" || command.gesture === "toggle")
+        this.events.onCommand?.(command);
     } else if (message.type === "session") {
       const session = parseSession(message);
       if (!session) return;
-      const active = session.stage === "running" || session.stage === "paused";
+      const active = session.stage === "running" || session.stage === "paused" || session.stage === "checking";
       // An idle second studio tab must not hide the active tab's notch.
       if (this.owner && this.owner !== ws) return;
       if (session.overlayEnabled !== undefined) {
-        if (session.id !== this.session?.id || (!this.session?.overlayEnabled && session.overlayEnabled)) this.dismissed = false;
+        if (session.id !== this.session?.id || session.overlayEnabled !== this.session?.overlayEnabled) {
+          this.dismissed = false;
+          this.explicitlyShown = false;
+        }
         this.owner = active ? ws : null;
         this.lastSession = Date.now();
-        this.updateOverlay(active && session.overlayEnabled && !this.dismissed, session.overlayDisplayId ?? null);
+        this.updateOverlay(active && (session.overlayEnabled || this.explicitlyShown) && !this.dismissed, session.overlayDisplayId ?? null, session.overlayScale ?? 1);
       }
       this.session = session;
       this.broadcast(session, ["overlay"]);
