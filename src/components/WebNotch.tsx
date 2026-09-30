@@ -14,7 +14,7 @@ export function WebNotch({ feed, state, onHide }: { feed: WebNotchFeed; state: W
   if (!state.visible) return null;
   return <aside className="web-notch" style={{ "--notch-scale": state.scale } as CSSProperties} aria-label="Чёлка в браузере">
     <div className="web-notch-avatar"><Avatar ref={avatar} locked={state.locked} face="none" headStyle="ghost" onReady={() => { if (avatar.current) feed.replay(avatar.current); }} /></div>
-    <p role="status">{state.cameraReady ? state.message : "Листай стрелками ← →"}</p>
+    {state.cameraReady && state.message && <p role="status">{state.message}</p>}
     {onHide && <button className="web-notch-close" aria-label="Скрыть чёлку до следующего выступления" onClick={onHide}><X size={14} /></button>}
   </aside>;
 }
