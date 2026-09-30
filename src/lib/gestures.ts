@@ -42,7 +42,9 @@ export function releasedPalm(hands: Point[][], referenceY?: number) {
 
 /** Camera-time budgets, in milliseconds. */
 const SWIPE_WINDOW = 1000; // a swipe covers its distance within this time
-const SWIPE_COOLDOWN = 400;
+const SWIPE_COOLDOWN = 180;
+const FAST_SWIPE_MS = 280;
+const MIN_SWIPE_SPEED = 0.28; // frame-height units per second; ignore drifting palms
 const TOGGLE_COOLDOWN = 700;
 const HOLD_MS = 1500;
 const UNLOCK_GRACE = 1600;
@@ -75,6 +77,8 @@ type Swipe = {
   disp: number;
   vert: number;
   progress: number;
+  threshold: number;
+  speed: number;
   guarded: boolean;
   flat: boolean;
 };
@@ -117,7 +121,7 @@ const nearEdge = (points: Point[]) =>
 /**
  * Coordinates are mirrored to match the silhouette, so right means screen-right.
  *
- * A swipe is a horizontal move of about two palm lengths within one second,
+ * A swipe is a horizontal move of about one palm length within one second,
  * measured on a sliding window of the followed hand. After a swipe the hand
  * travelling back to where it started is not a command; a hold only counts
  * once the hand has been lowered or relaxed since the last swipe.
@@ -243,8 +247,8 @@ export class GestureEngine {
     if (hand.ready && track.scale >= FAR_PALM) this.presenterSeenAt = time;
     const open = hand.ready || time - track.openAt <= OPEN_GRACE;
     const threshold = Math.max(
-      0.1,
-      Math.min(0.45, (track.scale * 1.8 * this.sensitivity) / 0.85),
+      0.075,
+      Math.min(0.3, (track.scale * 1.15 * this.sensitivity) / 0.85),
     );
     this.debug.scale = track.scale;
     this.debug.threshold = threshold;
@@ -320,6 +324,7 @@ export class GestureEngine {
     }
     const swipe = this.detect(sample, threshold);
     if (swipe) {
+      this.debug.threshold = swipe.threshold;
       this.debug.dx = swipe.dir * swipe.disp;
       this.debug.dy = sample.y - swipe.start.y;
       this.debug.elapsed = time - swipe.start.t;
@@ -328,9 +333,9 @@ export class GestureEngine {
       this.debug.dy = 0;
       this.debug.elapsed = 0;
     }
-    if (swipe && swipe.flat && !swipe.guarded && swipe.disp >= threshold) {
+    if (swipe && swipe.flat && !swipe.guarded && swipe.disp >= swipe.threshold && swipe.speed >= MIN_SWIPE_SPEED) {
       if (allowedGestures.includes(swipe.dir === 1 ? "next" : "previous"))
-        return this.fire(swipe, sample, threshold, time);
+        return this.fire(swipe, sample, time);
       this.samples = [sample];
       this.attempt = null;
       this.hold = null;
@@ -358,7 +363,7 @@ export class GestureEngine {
       );
       if (hint) return hint;
     }
-    const attempting = swipe && swipe.flat && !swipe.guarded ? swipe : null;
+    const attempting = swipe && swipe.flat && !swipe.guarded && swipe.speed >= MIN_SWIPE_SPEED ? swipe : null;
     // Only a quick move that fell short is an attempt; a drifting palm is not.
     const continues = this.attempt?.dir === attempting?.dir;
     if (
@@ -562,15 +567,22 @@ export class GestureEngine {
       const disp = dir * (now.x - start.x);
       if (disp <= 0) continue;
       const vert = Math.abs(now.y - start.y);
+      const elapsed = now.t - start.t;
+      const speed = elapsed > 0 ? disp * 1000 / elapsed : 0;
+      // A quick flick fires at a shorter distance, as soon as it crosses the
+      // threshold. No dwell or confirmation frame is added to the swipe.
+      const required = elapsed <= FAST_SWIPE_MS && speed >= 0.55 ? threshold * 0.78 : threshold;
       const swipe: Swipe = {
         dir,
         start,
         disp,
         vert,
-        progress: disp / threshold,
+        progress: disp / required,
+        threshold: required,
+        speed,
         guarded:
           this.guard?.dir === dir &&
-          dir * (now.x - this.guard.startX) < threshold,
+          dir * (now.x - this.guard.startX) < threshold * 0.25,
         // Up to ~49°: a natural arc still counts, a raise of the hand does not.
         flat: vert <= disp * 1.15,
       };
@@ -579,19 +591,13 @@ export class GestureEngine {
     return best;
   }
 
-  private fire(swipe: Swipe, now: Sample, threshold: number, time: number) {
+  private fire(swipe: Swipe, now: Sample, time: number) {
     this.cooldownUntil = time + SWIPE_COOLDOWN;
     this.stroke = { dir: swipe.dir, extreme: now, grewAt: time };
-    // Where the hand rested before this swipe. A sweep that went back past an
-    // earlier swipe keeps that swipe's centre; a slow frame rate can jump far
-    // past the threshold, so the rest point stays within reach of the hand.
-    const reach = threshold * 2.5;
-    const startX =
-      this.guard?.dir === swipe.dir
-        ? this.guard.startX
-        : swipe.dir === 1
-          ? Math.max(swipe.start.x, now.x - reach)
-          : Math.min(swipe.start.x, now.x + reach);
+    // Guard only the return to the original rest position. A deliberate
+    // opposite swipe needs a small overshoot, rather than another full palm.
+    // Keep the actual rest point even when a slow camera jumps past threshold.
+    const startX = this.guard?.dir === swipe.dir ? this.guard.startX : swipe.start.x;
     this.guard = {
       dir: swipe.dir === 1 ? -1 : 1,
       startX,

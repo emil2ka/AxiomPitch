@@ -141,14 +141,6 @@ self.onmessage = async (event: MessageEvent) => {
         }
       }
     }
-    if (pose && frameCount % 3 === 0) {
-      try {
-        pose.detectForVideo(bitmap, event.data.time, result => {
-          bodyPoints = mirror(result.landmarks[0] ?? []);
-          bodyWorld = mirrorWorld(result.worldLandmarks[0] ?? []);
-        });
-      } catch { pose.close(); pose = undefined; bodyPoints = []; bodyWorld = []; }
-    }
     const frame: VisionFrame = {
       type: "frame",
       time: event.data.time,
@@ -161,7 +153,17 @@ self.onmessage = async (event: MessageEvent) => {
       aspect: bitmap.width / bitmap.height,
       duration: performance.now() - started,
     };
+    // Deliver hand commands before optional CPU body tracking blocks this worker.
     self.postMessage(frame);
+    if (pose && frameCount % 3 === 0) {
+      try {
+        pose.detectForVideo(bitmap, event.data.time, result => {
+          bodyPoints = mirror(result.landmarks[0] ?? []);
+          bodyWorld = mirrorWorld(result.worldLandmarks[0] ?? []);
+        });
+      } catch { pose.close(); pose = undefined; bodyPoints = []; bodyWorld = []; }
+    }
+
   } catch (error) {
     self.postMessage({
       type: "error",

@@ -277,7 +277,8 @@ test("the same physical swipe counts the same on 4:3 and 16:9 cameras", () => {
   for (const width of [960, 1280]) {
     for (const [distance, expected] of [
       [160, "next"],
-      [90, undefined],
+      [90, "next"],
+      [45, undefined],
     ] as const) {
       const engine = new GestureEngine();
       let result: string | undefined;
@@ -303,11 +304,11 @@ test("sensitivity widens or shortens the required swipe", () => {
   const easy = new GestureEngine();
   easy.setSensitivity(0.55);
   easy.update(pose, [palm()], 0, false);
-  assert.equal(easy.update(pose, [palm(0.5)], 500, false).gesture, "next");
+  assert.equal(easy.update(pose, [palm(0.48)], 500, false).gesture, "next");
   const hard = new GestureEngine();
   hard.setSensitivity(1.15);
   hard.update(pose, [palm()], 0, false);
-  assert.equal(hard.update(pose, [palm(0.5)], 500, false).gesture, undefined);
+  assert.equal(hard.update(pose, [palm(0.48)], 500, false).gesture, undefined);
 });
 test("small hands use their own scale rather than shoulder width", () => {
   const small = (x: number) => palm().map(p => ({x: x + (p.x - .4) * .5, y: .4 + (p.y - .4) * .5}));
@@ -319,8 +320,8 @@ test("a quick swipe that stops short, a steep diagonal and bent fingers get thei
   const engine = new GestureEngine();
   const short = [
     ...still(engine, [0.4, 0.4], 0, 200),
-    ...move(engine, [0.4, 0.4], [0.47, 0.4], 200, 200),
-    ...still(engine, [0.47, 0.4], 400, 400),
+    ...move(engine, [0.4, 0.4], [0.44, 0.4], 200, 200),
+    ...still(engine, [0.44, 0.4], 400, 400),
   ];
   assert.deepEqual(gestures(short), []);
   const wider = short.find((frame) => frame.code === "wider");
@@ -352,9 +353,9 @@ test("a natural arc keeps counting as a swipe instead of a diagonal error", () =
   const engine = new GestureEngine();
   engine.update(pose, [palm()], 0, false);
   const arc = engine.update(pose, [palm(0.5, 0.28)], 400, false);
-  assert.equal(arc.kind, "progress");
+  assert.equal(arc.gesture, "next", "a natural arc fires as soon as it travels far enough");
   assert.equal(arc.code, undefined);
-  assert.equal(engine.update(pose, [palm(0.66, 0.22)], 700, false).gesture, "next");
+  assert.equal(engine.update(pose, [palm(0.66, 0.22)], 700, false).gesture, undefined, "continuing the same arc must not repeat");
 });
 test("locked gestures ignore free hand movement instead of flashing errors", () => {
   const engine = new GestureEngine();
@@ -386,7 +387,7 @@ test("a hand lost in the middle of a swipe is reported once, then calm", () => {
   const engine = new GestureEngine();
   const started = [
     ...still(engine, [0.4, 0.4], 0, 200),
-    ...move(engine, [0.4, 0.4], [0.47, 0.4], 200, 150),
+    ...move(engine, [0.4, 0.4], [0.44, 0.4], 200, 150),
   ];
   assert.deepEqual(gestures(started), []);
   const lost = gone(engine, 383, 600);
@@ -396,4 +397,70 @@ test("a hand lost in the middle of a swipe is reported once, then calm", () => {
     engine.update(pose, [palm(0.7)], 3100, false).gesture,
     undefined,
   );
+});
+
+test("short quick flicks in either direction fire within 165 ms at 30 FPS", () => {
+  for (const direction of [1, -1]) {
+    const engine = new GestureEngine();
+    let firedAt: number | undefined;
+    for (let time = 0; time <= 198; time += 33) {
+      const result = engine.update([], [palm(.4 + direction * .12 * time / 198)], time, false);
+      if (result.gesture) { firedAt = time; assert.equal(result.gesture, direction === 1 ? "next" : "previous"); break; }
+    }
+    assert.ok(firedAt !== undefined && firedAt <= 165, `first command at ${firedAt} ms`);
+  }
+});
+test("a 99 ms flick needs no stationary lead-in or hold after it", () => {
+  const engine = new GestureEngine();
+  const results = [0, 33, 66, 99].map(time => engine.update([], [palm(.4 + .09 * time / 99)], time, false));
+  assert.deepEqual(gestures(results), ["next"]);
+});
+test("low camera FPS still recognizes the first short swipe in 200 ms", () => {
+  const engine = new GestureEngine();
+  const results = [0, 100, 200].map(time => engine.update([], [palm(.4 + .15 * time / 200)], time, false));
+  assert.deepEqual(gestures(results), ["next"]);
+});
+test("one uninterrupted long sweep cannot advance several slides with the shorter cooldown", () => {
+  const engine = new GestureEngine();
+  assert.deepEqual(gestures(move(engine, [.2, .4], [.85, .4], 0, 1200)), ["next"]);
+});
+test("small detector jitter and slow small-palm drift never become commands", () => {
+  const jitter = new GestureEngine();
+  const results = Array.from({ length: 90 }, (_, i) => jitter.update([], [palm(.4 + Math.sin(i * 1.7) * .008)], i * 33, false, 16 / 9, ["next", "previous"]));
+  assert.deepEqual(gestures(results), []);
+  const drift = new GestureEngine();
+  const small = (x: number) => palm().map(point => ({ x: x + (point.x - .4) * .5, y: .4 + (point.y - .4) * .5 }));
+  assert.deepEqual(gestures(Array.from({ length: 120 }, (_, i) => drift.update([], [small(.4 + i * .002)], i * 33, false))), []);
+});
+test("returning to centre is ignored, but a small deliberate overshoot switches back promptly", () => {
+  const engine = new GestureEngine();
+  const next = move(engine, [.4, .4], [.55, .4], 0, 200);
+  still(engine, [.55, .4], 200, 200);
+  const returning = move(engine, [.55, .4], [.4, .4], 400, 200);
+  assert.deepEqual(gestures(next), ["next"]);
+  assert.deepEqual(gestures(returning), []);
+  const previous = move(engine, [.4, .4], [.35, .4], 600, 100);
+  assert.deepEqual(gestures(previous), ["previous"]);
+});
+
+test("a second short swipe is accepted without the old 400 ms dead period", () => {
+  const engine = new GestureEngine();
+  const first = move(engine, [.4, .4], [.52, .4], 0, 132);
+  const returning = move(engine, [.52, .4], [.4, .4], 165, 100);
+  const second = move(engine, [.4, .4], [.52, .4], 300, 132);
+  assert.deepEqual(gestures(first), ["next"]);
+  assert.deepEqual(gestures(returning), []);
+  assert.deepEqual(gestures(second), ["next"]);
+});
+
+test("small tracking jitter after returning to centre does not undo the swipe", () => {
+  for (const sensitivity of [.55, .85, 1.15]) {
+    const engine = new GestureEngine();
+    engine.setSensitivity(sensitivity);
+    const first = move(engine, [.4, .4], [.6, .4], 0, 200);
+    const returning = move(engine, [.6, .4], [.4, .4], 400, 250);
+    const rest = Array.from({ length: 25 }, (_, i) => engine.update([], [palm(.4 + Math.sin(i) * .01)], 700 + i * 33, false));
+    assert.deepEqual(gestures(first), ["next"]);
+    assert.deepEqual(gestures([...returning, ...rest]), [], `sensitivity ${sensitivity}`);
+  }
 });
