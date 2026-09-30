@@ -15,6 +15,7 @@ const protectedNames =
   /^(terminal|iterm2?|warp|finder|electron|pitchflow|axiompitch)$/i;
 /** The speaker console is a browser tab titled AxiomPitch or PitchFlow. */
 const consoleTitle = /pitchflow|axiompitch/i;
+const meetingTitle = /\bGoogle Meet\b|^Meet(?:\s*[-–—|]|\s*$)|\bmeet\.google\.com\b/i;
 
 export const isProtected = (app: AppRef) =>
   protectedBundles.has(app.bundleId) || protectedNames.test(app.name);
@@ -34,6 +35,8 @@ export function refuseReason(
     return `Впереди ${front.name}, а подключено ${connected.name}: стрелка не отправлена.`;
   if (front.windowTitle === null)
     return "macOS не показал окно приложения: разреши Универсальный доступ для терминала с сервером.";
+  if (meetingTitle.test(front.windowTitle))
+    return "Впереди Google Meet: вернись к окну со слайдами, чтобы листать жестами.";
   if (consoleTitle.test(front.windowTitle))
     return "Впереди окно PitchFlow: стрелка не отправлена.";
   return null;

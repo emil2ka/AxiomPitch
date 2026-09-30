@@ -1,9 +1,14 @@
-import { cp, mkdir, stat, rename, writeFile } from "node:fs/promises";
+import { cp, mkdir, stat, rename, writeFile, readFile, rm } from "node:fs/promises";
 import { fileURLToPath } from "node:url";
 import path from "node:path";
 
 const root = fileURLToPath(new URL("../", import.meta.url));
-const output = path.join(root, "public/vision");
+// Use the same version as the camera worker's immutable asset URL.
+const versionSource = await readFile(path.join(root, "src/lib/vision-assets.ts"), "utf8");
+const assetPath = versionSource.match(/visionAssetPath = "(vision\/[^".]+)"/)?.[1];
+if (!assetPath) throw new Error("Missing vision asset version");
+const legacyOutput = path.join(root, "public/vision");
+const output = path.join(root, "public", assetPath);
 await mkdir(output, { recursive: true });
 await cp(
   path.join(root, "node_modules/@mediapipe/tasks-vision/wasm"),
@@ -25,7 +30,11 @@ for (const [name, url] of models) {
   try {
     if ((await stat(destination)).size > 100000) continue;
   } catch {
-    /* Download missing model. */
+    // Reuse prepared local models when moving to versioned URLs.
+    try {
+      const previous = path.join(legacyOutput, name);
+      if ((await stat(previous)).size > 100000) { await cp(previous, destination); continue; }
+    } catch { /* Download missing model. */ }
   }
   console.log(`Preparing ${name}…`);
   const response = await fetch(url, { signal: AbortSignal.timeout(90000) });
@@ -36,4 +45,7 @@ for (const [name, url] of models) {
   await writeFile(`${destination}.tmp`, content);
   await rename(`${destination}.tmp`, destination);
 }
-console.log("Vision assets ready (local models and WASM).");
+// Legacy files are generated, not user data; keep one copy in deployment output.
+await rm(path.join(legacyOutput, "wasm"), { recursive: true, force: true });
+for (const [name] of models) await rm(path.join(legacyOutput, name), { force: true });
+console.log(`Vision assets ready (${assetPath}).`);

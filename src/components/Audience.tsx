@@ -1,6 +1,6 @@
 import { useEffect, useState } from "react";
 import type { Slide } from "../lib/types";
-import { PitchBrand } from "./Landing";
+import { PitchBrand } from "./PitchBrand";
 import { SlideView } from "./SlideView";
 
 export function Audience() {
@@ -11,15 +11,24 @@ export function Audience() {
     const session = new URLSearchParams(location.search).get("session");
     if (!session) return;
     const channel = new BroadcastChannel(`axiompitch-${session}`);
+    let showing = false;
+    const keydown = (event: KeyboardEvent) => {
+      if (!showing || event.altKey || event.ctrlKey || event.metaKey || event.shiftKey || event.repeat) return;
+      if (event.key !== "ArrowRight" && event.key !== "ArrowLeft") return;
+      event.preventDefault();
+      channel.postMessage({ type: "step", direction: event.key === "ArrowRight" ? "next" : "previous" });
+    };
+    window.addEventListener("keydown", keydown);
     channel.onmessage = (event) => {
       if (event.data.type === "slide") {
+        showing = true;
         setSlide(event.data.slide);
         setEnded(false);
       }
-      if (event.data.type === "end") setEnded(true);
+      if (event.data.type === "end") { showing = false; setEnded(true); }
     };
     channel.postMessage({ type: "ready" });
-    return () => channel.close();
+    return () => { window.removeEventListener("keydown", keydown); channel.close(); };
   }, []);
   useEffect(() => {
     const listener = () => setFullscreen(Boolean(document.fullscreenElement));

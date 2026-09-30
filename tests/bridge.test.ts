@@ -100,6 +100,22 @@ test("Chrome gets an arrow only when it is in front and not showing PitchFlow", 
   assert.equal(await chrome.readState(), null);
 });
 
+test("switching from Slides to Meet never sends meeting controls, then slides can resume", async () => {
+  const system = fakeSystem({ name: "Google Chrome", bundleId: "com.google.Chrome", windowTitle: "Питч — Google Slides" });
+  const chrome = createChromeTarget(system);
+  await chrome.connect();
+  await chrome.next();
+  for (const windowTitle of ["Meet - abc-defg-hij", "Google Meet", "meet.google.com/abc-defg-hij", "Meet — abc-defg-hij", "Meet – abc-defg-hij"]) {
+    system.front = { ...system.front!, windowTitle };
+    await assert.rejects(chrome.next(), /Google Meet/);
+    await assert.rejects(chrome.previous(), /Google Meet/);
+  }
+  assert.deepEqual(system.keys, [124]);
+  system.front = { ...system.front!, windowTitle: "Питч — Google Slides" };
+  await chrome.previous();
+  assert.deepEqual(system.keys, [124, 123]);
+});
+
 test("Keynote without a running show fails loudly instead of pretending", async () => {
   const system = fakeSystem();
   system.reply = "not-playing";
@@ -221,6 +237,27 @@ test("a page from another origin cannot open /live", async () => {
       /403/,
     );
   } finally {
+    await server.stop();
+  }
+});
+
+test("the production site can connect the loopback bridge but lookalike sites cannot", async () => {
+  const server = await startServer();
+  let speaker: ReturnType<typeof open> | undefined;
+  try {
+    const origin = "https://axiompitch.vercel.app";
+    const response = await fetch(`${server.base}/api/overlay`, { headers: { origin } });
+    assert.equal(response.status, 200);
+    assert.equal(response.headers.get("access-control-allow-origin"), origin);
+    speaker = open(server.port, "speaker", origin);
+    await speaker.ready;
+    for (const origin of ["https://axiompitch.vercel.app.evil.example", "https://another.vercel.app"]) {
+      const rejected = await fetch(`${server.base}/api/overlay`, { headers: { origin } });
+      assert.equal(rejected.status, 403);
+      await assert.rejects(open(server.port, "speaker", origin).ready, /403/);
+    }
+  } finally {
+    speaker?.socket.close();
     await server.stop();
   }
 });

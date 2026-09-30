@@ -1,6 +1,6 @@
 import { useState } from "react";
 import { GraduationCap, History, PanelLeftClose, PanelLeftOpen, Presentation, ScanLine, SlidersHorizontal } from "lucide-react";
-import { PitchBrand } from "./Landing";
+import { PitchBrand } from "./PitchBrand";
 import { accountInitials, loadAccount, profileStorage } from "../lib/account";
 import type { LocalAccount } from "../lib/account";
 

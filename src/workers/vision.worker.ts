@@ -60,8 +60,10 @@ self.onmessage = async (event: MessageEvent) => {
     try {
       const base = event.data.base as string;
       modelBase = base;
+      self.postMessage({ type: "progress", message: "Загружаем модуль распознавания…" });
       const files = await FilesetResolver.forVisionTasks(`${base}/wasm`, true);
       visionFiles = files;
+      self.postMessage({ type: "progress", message: "Готовим распознавание рук…" });
       // The GPU delegate keeps more frames per second on real hardware; a
       // software rasterizer or a failed context falls back to plain CPU.
       if (hasHardwareWebgl()) {
@@ -73,6 +75,7 @@ self.onmessage = async (event: MessageEvent) => {
       } else {
         hand = await HandLandmarker.createFromOptions(files, handOptions("CPU"));
       }
+      self.postMessage({ type: "ready" });
       // Body tracking decorates the mirror but must never disable hand commands.
       try {
         pose = await PoseLandmarker.createFromOptions(files, {
@@ -85,7 +88,6 @@ self.onmessage = async (event: MessageEvent) => {
           minPosePresenceConfidence: 0.5,
         });
       } catch { pose = undefined; }
-      self.postMessage({ type: "ready" });
     } catch (error) {
       self.postMessage({
         type: "error",

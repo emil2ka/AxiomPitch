@@ -12,7 +12,7 @@
     "overlay": "node scripts/setup-overlay.mjs && electron overlay/main.ts",
     "setup:vision": "node scripts/setup-vision.mjs",
     "postinstall": "npm run setup:vision",
-    "test": "node --experimental-strip-types --test tests/*.test.ts",
+    "test": "tsx --tsconfig tsconfig.app.json --test tests/*.test.ts",
     "studio": "node scripts/studio.mjs",
     "db:export": "node --experimental-strip-types scripts/export-database.ts"
   },
@@ -37,7 +37,9 @@
     "@types/ws": "^8.18.1",
     "@vitejs/plugin-react": "^6.1.1",
     "electron": "^44.4.5",
+    "jsdom": "^30.1.1",
     "oxlint": "^1.81.0",
+    "tsx": "^4.23.15",
     "typescript": "~6.0.2",
     "vite": "^8.3.0"
   }

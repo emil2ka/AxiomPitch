@@ -1,6 +1,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
-import { newPreflight, recordPreflight } from "../src/lib/preflight.ts";
+import { newPreflight, recordPreflight, presentationReadiness, continuationReadiness, readNotchChoice } from "../src/lib/preflight.ts";
+import type { PreparationInput } from "../src/lib/preflight.ts";
 import { GestureEngine } from "../src/lib/gestures.ts";
 import type { Point } from "../src/lib/types.ts";
 
@@ -29,6 +30,38 @@ test("preflight verifies actual recognizer feedback and keeps its slide in the s
   assert.equal(back.index, 1);
   assert.equal(back.previous, true);
 });
+
+const prepared: PreparationInput = {
+  cameraStatus: "ready", preflight: { index: 1, hand: true, next: true, previous: true, lock: true, unlock: true },
+  notchChoice: "off", notchVisible: false, bridgeOnline: false, shellConnected: false, displayAvailable: true,
+  workspaceReady: true, pdfLoading: false, hasSlides: true, external: false, externalReady: false,
+};
+test("first start requires a live camera, a deck and explicit notch choice, without gesture practice", () => {
+  assert.equal(presentationReadiness({ ...prepared, preflight: newPreflight() }).ready, true);
+  for (const patch of [
+    { cameraStatus: "off" }, { cameraStatus: "loading" }, { cameraStatus: "error" },
+    { notchChoice: null }, { workspaceReady: false }, { pdfLoading: true }, { hasSlides: false },
+  ] as Partial<PreparationInput>[]) {
+    const result = presentationReadiness({ ...prepared, ...patch });
+    assert.equal(result.ready, false, JSON.stringify(patch));
+    assert.ok(result.reason);
+  }
+});
+test("notch is optional only after choosing off; on requires the shell and selected display", () => {
+  const withNotch: PreparationInput = { ...prepared, notchChoice: "on", bridgeOnline: true, shellConnected: true };
+  assert.equal(presentationReadiness(withNotch).ready, true);
+  for (const patch of [{ bridgeOnline: false }, { shellConnected: false }, { displayAvailable: false }]) {
+    assert.equal(presentationReadiness({ ...withNotch, ...patch }).ready, false);
+  }
+  assert.equal(presentationReadiness({ ...prepared, notchVisible: true }).ready, false, "off must actually hide the notch before starting");
+  for (const value of [null, "", "true", "false", "anything"]) assert.equal(readNotchChoice(value), null);
+  assert.equal(readNotchChoice("on"), "on");
+  assert.equal(readNotchChoice("off"), "off");
+});
+test("an external show requires a live target, independently of the PDF preview", () => {
+  assert.equal(presentationReadiness({ ...prepared, external: true, externalReady: false }).ready, false);
+  assert.equal(presentationReadiness({ ...prepared, external: true, externalReady: true, hasSlides: false }).ready, true);
+});
 test("preflight progress cannot pass checks, and lock/unlock are separate", () => {
   const initial = newPreflight();
   assert.equal(recordPreflight(initial, { kind: "progress", message: "", progressGesture: "next", progress: .9 }, false), initial);
@@ -39,4 +72,10 @@ test("preflight progress cannot pass checks, and lock/unlock are separate", () =
   const unlocked = recordPreflight(locked, { kind: "success", message: "", gesture: "toggle" }, false);
   assert.equal(unlocked.lock, true);
   assert.equal(unlocked.unlock, true);
+});
+
+test("an ongoing presentation can continue and resume with arrows after camera or notch loss", () => {
+  assert.equal(continuationReadiness({ ...prepared, cameraStatus: "error", notchChoice: "on", bridgeOnline: false }).ready, true);
+  assert.equal(continuationReadiness({ ...prepared, cameraStatus: "off", hasSlides: false }).ready, false);
+  assert.equal(continuationReadiness({ ...prepared, cameraStatus: "off", external: true, externalReady: false }).ready, false);
 });

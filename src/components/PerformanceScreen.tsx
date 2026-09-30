@@ -4,8 +4,8 @@ import { SlideView } from "./SlideView";
 import { formatTime } from "../lib/deck";
 import type { Slide } from "../lib/types";
 
-export function PerformanceScreen({ slide, index, count, duration, paused, external, onStep, onPause, onFinish, onStudio }: {
-  slide: Slide; index: number; count: number | null; duration: number; paused: boolean; external: boolean;
+export function PerformanceScreen({ slide, index, count, duration, paused, external, cameraDisconnected, onStep, onPause, onFinish, onStudio }: {
+  slide: Slide; index: number; count: number | null; duration: number; paused: boolean; external: boolean; cameraDisconnected: boolean;
   onStep: (direction: "next" | "previous") => void; onPause: () => void; onFinish: () => void; onStudio: () => void;
 }) {
   const [controls, setControls] = useState(true);
@@ -36,6 +36,7 @@ export function PerformanceScreen({ slide, index, count, duration, paused, exter
   };
   return <section className={`performance-screen ${controls || paused ? "controls-visible" : "controls-hidden"}`} aria-label="Экран выступления" onPointerMove={reveal} onPointerDown={reveal}>
     <div className="performance-slide">{external ? <div className="performance-external"><span>Внешний показ</span><h1>Слайд {index + 1}</h1><p>Презентация открыта в подключённом приложении.</p></div> : <SlideView slide={slide} />}</div>
+    {cameraDisconnected && <p className="performance-camera-notice" role="status">Камера отключена — листай слайды стрелками ← →</p>}
     <div className="performance-controls">
       <button onClick={onStudio} className="performance-back"><ArrowLeft size={16} />В студию</button>
       <div className="performance-position"><button aria-label="Предыдущий слайд" disabled={index === 0} onClick={() => onStep("previous")}><ArrowLeft size={18} /></button><span>{String(index + 1).padStart(2, "0")}<small> / {count ?? "?"}</small></span><button aria-label="Следующий слайд" disabled={count !== null && index + 1 >= count} onClick={() => onStep("next")}><ArrowRight size={18} /></button></div>

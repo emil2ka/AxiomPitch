@@ -25,6 +25,7 @@ export type VisionFrame = {
 export type VisionMessage =
   | VisionFrame
   | { type: "ready" }
+  | { type: "progress"; message: string }
   | { type: "error"; message: string };
 export type Slide = {
   id: string;

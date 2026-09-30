@@ -2,7 +2,7 @@ import { useState } from "react";
 import type { FormEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
-import { PitchBrand } from "./Landing";
+import { PitchBrand } from "./PitchBrand";
 import { EntryScene } from "./EntryScene";
 import { createAccount, looksLikeEmail } from "../lib/account";
 import { cloudEnabled, cloudSignUp } from "../lib/cloud";
@@ -37,7 +37,7 @@ export function RegistrationPage() {
       try {
         const entry = await cloudSignUp(cleanName, cleanEmail, password);
         if ("confirm" in entry) { setConfirm(entry.confirm); setBusy(false); }
-        else window.location.assign("/studio?welcome=1");
+        else window.location.assign("/learn");
       } catch (failure) {
         setError(failure instanceof Error ? failure.message : "Не удалось создать аккаунт.");
         setBusy(false);
@@ -46,7 +46,7 @@ export function RegistrationPage() {
     }
     try {
       createAccount(cleanName, cleanEmail);
-      window.location.assign("/studio?welcome=1");
+      window.location.assign("/learn");
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Не удалось сохранить профиль.");
     }
@@ -65,7 +65,7 @@ export function RegistrationPage() {
           <span className="entry-line accent"><motion.span initial={reduced ? false : { y: "112%" }} animate={{ y: 0 }} transition={{ duration: .8, delay: .14, ease: heroEase }}>выход.</motion.span></span>
         </h1>
         {confirm ? <>
-          <p className="login-lead" role="status">Мы отправили письмо на <strong>{confirm}</strong>. Открой ссылку из письма — почта подтвердится, и ты сразу попадёшь в студию.</p>
+          <p className="login-lead" role="status">Мы отправили письмо на <strong>{confirm}</strong>. Открой ссылку из письма — почта подтвердится, и ты сразу попадёшь на обучение.</p>
           <a className="entry-secondary-link" href="/login">Почта уже подтверждена? Войти</a>
         </> : <>
         <form onSubmit={continueForward} noValidate>

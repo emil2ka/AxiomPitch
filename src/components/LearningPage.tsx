@@ -1,12 +1,13 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, ArrowRight, Camera, CameraOff, Check, Hand, LoaderCircle, RotateCcw } from "lucide-react";
+import { CameraVideo } from "./CameraPreview";
 import { Avatar } from "./Avatar";
 import { TeachingCompanion } from "./TeachingCompanion";
 import type { AvatarHandle } from "./Avatar";
-import { PitchBrand } from "./Landing";
+import { PitchBrand } from "./PitchBrand";
 import { loadAccount, profileStorage } from "../lib/account";
-import { useCamera } from "../hooks/useCamera";
+import { useCamera, useCameraPreparation } from "../hooks/useCamera";
 import { isOpenPalm, isVisibleHand } from "../lib/gestures";
 import { LearningGestureEngine, advanceAfterSuccess, applyPracticeGesture, createPractice, expectedGesture, goodLearningHands, lessons, practiceFeedback } from "../lib/learning";
 import type { AdvanceGate, Practice } from "../lib/learning";
@@ -17,6 +18,7 @@ const slideTitles = ["Твоя история. Твоя сцена.", "Своб�
 const successMessages = ["Ладонь вижу. Всё готово!", "Получилось. Слайд переключён.", "Отлично. Мы вернулись назад.", "Жесты выключены. Руки свободны.", "Снова в деле. Жесты включены.", "Ты справился. Можно на сцену."];
 
 export function LearningPage({ onEnterStudio }: { onEnterStudio: (completed: boolean) => void }) {
+  const { setPreflight } = useCameraPreparation();
   const [preferences] = useState(() => profileStorage(loadAccount()?.id ?? "guest"));
   const [step, setStep] = useState(0);
   const [practice, setPractice] = useState<Practice>(() => createPractice(0));
@@ -125,7 +127,7 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: (completed: boo
       else avatar.current?.setExpression("calm");
     }
   }, [finish, moveToStep]);
-  const { status: cameraStatus, error: cameraError, videoRef, start: cameraStart, stop: cameraStop } = useCamera(onFrame, preferences.getItem("axiompitch-camera") || "");
+  const { status: cameraStatus, error: cameraError, phase: cameraPhase, videoRef, start: cameraStart, stop: cameraStop } = useCamera(onFrame, preferences.getItem("axiompitch-camera") || "");
   const cameraOn = cameraStatus === "ready" || cameraStatus === "loading";
   const running = sessionRunning && cameraStatus === "ready";
 
@@ -233,7 +235,7 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: (completed: boo
   const guidance = cameraError || (passed || active ? feedback.message : step === 6 ? "Продолжай в своём темпе." : exampleHint);
   const holdProgress = active ? feedback.progress ?? 0 : passed ? 1 : 0;
 
-  const primaryAction = step < 6 ? <button className="learn-primary" onClick={passed ? () => moveToStep(step + 1, runningRef.current) : begin}>{passed ? <Check size={17} /> : cameraStatus === "loading" ? <LoaderCircle className="spin" size={17} /> : <Hand size={17} />}{passed ? "Следующее упражнение" : cameraStatus === "loading" ? "Отменить подключение" : active ? "Начать попытку заново" : cameraStatus === "ready" ? "Теперь мой ход" : "Попробовать с камерой"}</button> : <button className="learn-primary" onClick={() => onEnterStudio(coursePassed)}>Перейти в студию <ArrowRight size={17} /></button>;
+  const primaryAction = step < 6 ? <button className="learn-primary" onClick={passed ? () => moveToStep(step + 1, runningRef.current) : begin}>{passed ? <Check size={17} /> : cameraStatus === "loading" ? <LoaderCircle className="spin" size={17} /> : <Hand size={17} />}{passed ? "Следующее упражнение" : cameraStatus === "loading" ? "Отменить подключение" : active ? "Начать попытку заново" : cameraStatus === "ready" ? "Теперь мой ход" : "Попробовать с камерой"}</button> : <button className="learn-primary" onClick={() => { if (coursePassed && cameraStatus === "ready") setPreflight({ index: 1, hand: true, next: true, previous: true, lock: true, unlock: true }); onEnterStudio(coursePassed); }}>Перейти в студию <ArrowRight size={17} /></button>;
 
   return <div className="learning-page">
     <header className="learning-header">
@@ -253,13 +255,13 @@ export function LearningPage({ onEnterStudio }: { onEnterStudio: (completed: boo
           <div className={`learning-feedback ${cameraError ? "error" : feedback.kind}`} role="status" aria-live="polite" aria-atomic="true"><span className="learning-feedback-icon">{passed ? <Check size={19} /> : feedback.kind === "error" || cameraError ? <Hand size={19} /> : <span className="learn-status-dot" />}</span><div><strong>{cameraError ? "Камера не подключилась" : passed ? "Жест принят" : active ? "Твой ход" : "Пример"}</strong><p>{guidance}</p>{active && feedback.progress !== undefined && <div className="learning-feedback-progress"><span style={{ width: `${holdProgress * 100}%` }} /></div>}</div></div>
           <div className="learning-avatar"><Avatar transitionName="speaker" key={replay} ref={avatar} locked={practice.locked} face="none" headStyle="ghost" /></div>
           <div className="learning-stage-bottom">
-            <aside className={`learning-camera ${cameraOn ? "on" : ""}`} aria-label="Твой кадр"><div className="learning-camera-header"><span><i />{cameraStatus === "ready" ? handDetected ? "Ладонь в кадре" : "Покажи ладонь" : "Твой кадр"}</span>{cameraOn && <button onClick={() => { pendingPractice.current = false; cameraStop(); }} aria-label="Выключить камеру"><CameraOff size={14} /></button>}</div><div className="learning-camera-view"><video ref={videoRef} className={cameraStatus === "ready" ? "visible" : ""} muted playsInline aria-hidden={cameraStatus !== "ready"} aria-label="Зеркальное превью камеры" />{cameraStatus !== "ready" && <button onClick={begin} aria-label={cameraStatus === "loading" ? "Отменить подключение камеры" : "Включить камеру"}>{cameraStatus === "loading" ? <LoaderCircle className="spin" size={20} /> : <Camera size={20} />}<span>{cameraStatus === "loading" ? "Подключаем…" : "Включить камеру"}</span></button>}</div></aside>
+            <aside className={`learning-camera ${cameraOn ? "on" : ""}`} aria-label="Твой кадр"><div className="learning-camera-header"><span><i />{cameraStatus === "ready" ? handDetected ? "Ладонь в кадре" : "Покажи ладонь" : "Твой кадр"}</span>{cameraOn && <button onClick={() => { pendingPractice.current = false; cameraStop(); }} aria-label="Выключить камеру"><CameraOff size={14} /></button>}</div><div className="learning-camera-view"><CameraVideo source={videoRef} status={cameraStatus} className={cameraStatus === "ready" ? "visible" : ""} label="Зеркальное превью камеры" />{cameraStatus !== "ready" && <button onClick={begin} aria-label={cameraStatus === "loading" ? "Отменить подключение камеры" : "Включить камеру"}>{cameraStatus === "loading" ? <LoaderCircle className="spin" size={20} /> : <Camera size={20} />}<span>{cameraStatus === "loading" ? cameraPhase || "Подключаем…" : "Включить камеру"}</span></button>}</div></aside>
             <div className="learning-presentation" aria-label="Учебная презентация"><span className="learning-preview-label">{practice.locked ? "Жесты выключены" : "Твоя презентация"}</span><div className="learning-slide"><motion.img key={visibleSlide} src={`/demo-deck/slide-${visibleSlide + 1}.jpg`} alt={slideTitles[visibleSlide]} initial={reduced ? false : { opacity: 0, x: 8 }} animate={{ opacity: 1, x: 0 }} /></div><span className="learning-slide-count">{visibleSlide + 1} / {slideTitles.length}</span></div>
           </div>
         </section>
         <aside className="learning-instructions" aria-label="Как выполнить упражнение"><TeachingCompanion key={`${step}-${replay}-${demoSequence}`} gesture={expected} playing={!active && !passed && step < 6} /><div className="learning-instruction-heading"><span>{step < 6 ? "КАК СДЕЛАТЬ" : "ЧТО ДАЛЬШЕ"}</span><span>{holdStep ? "1,5 сек." : "Одна ладонь"}</span></div><ol>{instructions.map((instruction, i) => <li key={`${step}-${i}`}><span>{i + 1}</span><p>{instruction}</p></li>)}</ol>
           {step === 5 && <div className="learning-sequence" aria-label="Последовательность мини-репетиции">{["Вперёд", "Вперёд", "Назад"].map((label, i) => <span key={i} className={i < practice.sequence ? "done" : i === (active || passed ? practice.sequence : demoSequence) ? "current" : ""}>{i < practice.sequence ? <Check size={14} /> : i === 2 ? <ArrowLeft size={14} /> : <ArrowRight size={14} />}{label}</span>)}</div>}
-          <div className="learning-actions">{step < 6 ? <>{primaryAction}<button className="learn-secondary" onClick={showExample}><RotateCcw size={15} />Повторить пример</button>{running && <button className="learn-next-example" onClick={pausePractice}>Приостановить практику</button>}</> : <><button className="learn-primary" onClick={() => onEnterStudio(coursePassed)}>Перейти в студию <ArrowRight size={17} /></button><button className="learn-secondary" onClick={() => { setVerified(new Set()); chooseStep(0); }}>Пройти ещё раз</button></>}</div><p className="learning-privacy">Камера остаётся на устройстве.</p>
+          <div className="learning-actions">{step < 6 ? <>{primaryAction}<button className="learn-secondary" onClick={showExample}><RotateCcw size={15} />Повторить пример</button>{running && <button className="learn-next-example" onClick={pausePractice}>Приостановить практику</button>}</> : <><button className="learn-primary" onClick={() => { if (coursePassed && cameraStatus === "ready") setPreflight({ index: 1, hand: true, next: true, previous: true, lock: true, unlock: true }); onEnterStudio(coursePassed); }}>Перейти в студию <ArrowRight size={17} /></button><button className="learn-secondary" onClick={() => { setVerified(new Set()); chooseStep(0); }}>Пройти ещё раз</button></>}</div><p className="learning-privacy">Камера остаётся на устройстве.</p>
         </aside>
       </div>
     </main>

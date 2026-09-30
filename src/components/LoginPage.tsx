@@ -4,7 +4,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, ArrowRight, LogOut } from "lucide-react";
-import { PitchBrand } from "./Landing";
+import { PitchBrand } from "./PitchBrand";
 import { EntryScene } from "./EntryScene";
 import {
   accountHome,
@@ -36,7 +36,7 @@ function CloudLogin() {
     setBusy(true);
     try {
       if (mode === "reset") { await cloudResetPassword(cleanEmail); setMode("sent"); }
-      else { const { created } = await cloudSignIn(cleanEmail, password); window.location.assign(created ? "/studio?welcome=1" : "/studio"); return; }
+      else { const { created } = await cloudSignIn(cleanEmail, password); window.location.assign(created ? "/learn" : "/studio"); return; }
     } catch (failure) { setError(failure instanceof Error ? failure.message : "Не удалось войти."); }
     setBusy(false);
   };

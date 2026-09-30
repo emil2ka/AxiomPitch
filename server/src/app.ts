@@ -18,12 +18,13 @@ import { sessionRoutes } from "./routes/sessions.ts";
 import { profileRoutes } from "./routes/profiles.ts";
 import { LiveHub } from "./ws.ts";
 
-/** Vite dev (5173) and vite preview (4173) only. */
+/** Exact trusted web origins; the bridge still listens only on loopback. */
 export const defaultOrigins = [
   "http://localhost:5173",
   "http://127.0.0.1:5173",
   "http://localhost:4173",
   "http://127.0.0.1:4173",
+  "https://axiompitch.vercel.app",
 ];
 
 export type AppOptions = {

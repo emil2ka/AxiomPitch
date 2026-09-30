@@ -125,7 +125,7 @@ async function enter(db: SupabaseClient, user: User): Promise<CloudEntry> {
 /** `confirm` means Supabase sent a confirmation email and there is no session yet. */
 export async function cloudSignUp(name: string, email: string, password: string): Promise<CloudEntry | { confirm: string }> {
   const db = await cloud();
-  const { data, error } = await db.auth.signUp({ email, password, options: { data: { name }, emailRedirectTo: `${location.origin}/login` } });
+  const { data, error } = await db.auth.signUp({ email, password, options: { data: { name }, emailRedirectTo: `${location.origin}/learn` } });
   if (error) fail(error);
   if (!data.session || !data.user) return { confirm: email };
   return enter(db, data.user);

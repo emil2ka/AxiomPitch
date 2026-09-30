@@ -3,7 +3,7 @@ import { ArrowLeft, ArrowRight, Camera, CameraOff, Hand, LoaderCircle, Pause, Pl
 import { useReducedMotion } from "motion/react";
 import { Avatar } from "./Avatar";
 import type { AvatarHandle } from "./Avatar";
-import { PitchBrand } from "./Landing";
+import { PitchBrand } from "./PitchBrand";
 import { useCamera } from "../hooks/useCamera";
 import { demoHandFrame } from "../lib/hand-demo";
 import type { HandDemo } from "../lib/hand-demo";

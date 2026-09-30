@@ -2,7 +2,7 @@ import { useEffect, useState } from "react";
 import type { FormEvent } from "react";
 import { motion, useReducedMotion } from "motion/react";
 import { ArrowLeft, ArrowRight } from "lucide-react";
-import { PitchBrand } from "./Landing";
+import { PitchBrand } from "./PitchBrand";
 import { EntryScene } from "./EntryScene";
 import { cloudNewPassword, cloudSession } from "../lib/cloud";
 import "../registration.css";
@@ -29,7 +29,7 @@ export function ResetPasswordPage() {
     setBusy(true);
     try {
       const { created } = await cloudNewPassword(password);
-      window.location.assign(created ? "/studio?welcome=1" : "/studio");
+      window.location.assign(created ? "/learn" : "/studio");
     } catch (failure) {
       setError(failure instanceof Error ? failure.message : "Не удалось сменить пароль.");
       setBusy(false);

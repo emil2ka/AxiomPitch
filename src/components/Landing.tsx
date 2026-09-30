@@ -6,9 +6,7 @@ import { PitchStory } from "./PitchStory";
 import { PixelCompanion } from "./PixelCompanion";
 import { accountHome, loadAccount, loadSavedAccount } from "../lib/account";
 
-export function PitchBrand() {
-  return <span className="pitch-brand"><span className="pitch-mark" aria-hidden="true"><img src="/brand/companion-mark.svg" alt="" width={36} height={32} /></span><span>AXIOM<span className="pitch-brand-suffix">PITCH</span></span></span>;
-}
+import { PitchBrand } from "./PitchBrand";
 
 const heroEase: [number, number, number, number] = [0.22, 1, 0.36, 1];
 const HERO_LINES = ["Выступление,", "которое следует", "за тобой"];

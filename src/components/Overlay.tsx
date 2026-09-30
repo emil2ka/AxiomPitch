@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { apiBase } from "../lib/api";
+import { bridgeBase as localBridgeBase } from "../lib/bridge-config";
 import { BridgeClient } from "../lib/bridge-client";
 import { Avatar } from "./Avatar";
 import { X } from "lucide-react";
@@ -10,7 +10,7 @@ import "../overlay.css";
 function bridgeBase() {
   const param = new URLSearchParams(location.search).get("bridge");
   if (param && /^http:\/\/(127\.0\.0\.1|localhost):\d+$/.test(param)) return param;
-  return apiBase || "http://127.0.0.1:8787";
+  return localBridgeBase;
 }
 
 /** Design-copy mirror, rendered by the existing Electron/WebSocket shell. */
