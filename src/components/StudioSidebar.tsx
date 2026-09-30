@@ -41,7 +41,7 @@ export function StudioSidebar({ active, onNavigate, account: supplied, sessionAc
       <a className={`sidebar-profile ${active === "profile" ? "active" : ""}`} href={href("profile")} aria-label="Мой профиль" aria-current={active === "profile" ? "page" : undefined}
         onClick={onNavigate ? event => { event.preventDefault(); onNavigate("profile"); } : undefined}>
         <span className="sidebar-avatar" aria-hidden="true">{accountInitials(account?.name || "")}</span>
-        <span className="sidebar-account-copy"><strong>{account?.name || "Профиль"}</strong><small>На этом устройстве</small></span>
+        <span className="sidebar-account-copy"><strong>{account?.name || "Профиль"}</strong><small>{account?.ownerId ? "Аккаунт" : "На этом устройстве"}</small></span>
       </a>
     </div>
   </aside>;
