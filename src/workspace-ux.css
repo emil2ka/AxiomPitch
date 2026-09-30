@@ -87,6 +87,7 @@
 .profile-form label:not(:first-child) { margin-top: 16px; }
 .profile-form label > span { color: #8f98a6; margin-left: 6px; font-size: 12px; }
 .profile-form input { max-width: none; }
+.profile-form input:read-only { color: #8f98a6; border-color: #ffffff12; }
 .profile-form .button { align-self: start; margin-top: 8px; }
 .profile-message { font-size: 14px; color: #b0d0be; margin: 0; }
 .profile-message.error { color: #d9b28c; }
