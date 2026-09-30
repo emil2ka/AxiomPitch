@@ -40,6 +40,7 @@ import { PerformanceScreen } from "./components/PerformanceScreen";
 import { TestPage } from "./components/TestPage";
 import "./show-modes.css";
 import { ProfilePage } from "./components/ProfilePage";
+import type { CloudStatus } from "./components/ProfilePage";
 import { HistoryPage } from "./components/HistoryPage";
 import { Avatar } from "./components/Avatar";
 import { CameraPreview } from "./components/CameraPreview";
@@ -70,6 +71,7 @@ import type {
   TargetStatus,
 } from "./lib/bridge-client";
 import { signOut, loadAccount, loadSavedAccount, markLearned, profileStorage, listAccounts, cacheAccounts, resumeAccount } from "./lib/account";
+import { cloudEnabled, cloudPreferencesChanged, cloudResume, cloudSession, cloudSignOut, mergeHistory, saveCloudProfile, saveCloudSessions, syncCloudHistory, watchCloudSignOut } from "./lib/cloud";
 import { demoSlides, formatTime, readPdf } from "./lib/deck";
 import { GestureEngine } from "./lib/gestures";
 import { databaseProfile, databaseProfiles, databasePreferences, syncProfile, linkLegacyData, saveDatabasePreferences, saveDatabaseWorkspace } from "./lib/profile-db";
@@ -85,6 +87,7 @@ import type {
 
 const RegistrationPage = lazy(() => import("./components/RegistrationPage").then(module => ({ default: module.RegistrationPage })));
 const LoginPage = lazy(() => import("./components/LoginPage").then(module => ({ default: module.LoginPage })));
+const ResetPasswordPage = lazy(() => import("./components/ResetPasswordPage").then(module => ({ default: module.ResetPasswordPage })));
 const LearningPage = lazy(() => import("./components/LearningPage").then(module => ({ default: module.LearningPage })));
 const CompanionPreview = lazy(() => import("./components/CompanionPreview").then(module => ({ default: module.CompanionPreview })));
 
@@ -151,6 +154,9 @@ function describeTarget(status: TargetStatus | null, estimated: boolean) {
 function Presenter() {
   const [account, setAccount] = useState(() => loadAccount());
   const accountId = account?.id;
+  const ownerId = account?.ownerId;
+  const [cloud, setCloud] = useState<Omit<CloudStatus, "onRetry">>({ state: "syncing", error: "" });
+  const [cloudRetry, setCloudRetry] = useState(0);
   const [storage] = useState(() => profileStorage(accountId ?? "guest"));
   const initialPreferences = useRef(Object.fromEntries(databasePreferences.map(key => [key, storage.getItem(key)])));
   const [workspaceReady, setWorkspaceReady] = useState(() => !accountId);
@@ -504,6 +510,8 @@ function Presenter() {
     try {
       await persistCurrentWorkspace();
       signOut();
+      // The local sign-out comes first, so the Supabase event finds nobody to redirect.
+      if (account?.ownerId) await cloudSignOut().catch(() => undefined);
       window.location.assign(create ? "/register" : "/login");
     } catch { setNotice("Не удалось сохранить данные перед выходом. Проверь доступное место и повтори."); }
   };
@@ -819,6 +827,21 @@ function Presenter() {
     workspaceSnapshot.current = { slides, name: deckName, index, presentationId };
     readyToSave.current = workspaceReady && !(restoreFromDatabase.current && apiEnabled && bridgeOnline && !databaseReady && !databaseError);
   }, [slides, deckName, index, presentationId, workspaceReady, bridgeOnline, databaseReady, databaseError, history]);
+  // Rehearsals from other devices join this history; unsent local ones go up.
+  useEffect(() => {
+    if (!accountId || !ownerId) return;
+    let cancelled = false;
+    syncCloudHistory({ id: accountId, ownerId }, historySnapshot.current).then(shared => {
+      if (cancelled) return;
+      setHistory(previous => {
+        const merged = mergeHistory(shared, previous);
+        try { storage.setItem("axiompitch-history", JSON.stringify(merged)); } catch { /* The list still shows in this tab. */ }
+        return merged;
+      });
+      setCloud({ state: "synced", error: "" });
+    }).catch((failure: Error) => { if (!cancelled) setCloud({ state: "error", error: failure.message }); });
+    return () => { cancelled = true; };
+  }, [accountId, ownerId, storage, cloudRetry]);
   useEffect(() => {
     if (!apiEnabled || !account || !bridgeOnline || !workspaceReady) return;
     let cancelled = false;
@@ -910,6 +933,12 @@ function Presenter() {
     const timer = setTimeout(() => { void saveDatabasePreferences().catch((failure: Error) => setDatabaseError(failure.message)); }, 500);
     return () => clearTimeout(timer);
   }, [notchScale, target, notchEnabled, notchDisplay, sensitivity, databaseReady, bridgeOnline, storage]);
+  // Declared after the effects above, so storage already holds the new values.
+  useEffect(() => {
+    if (!account?.ownerId || !cloudPreferencesChanged(account)) return;
+    const timer = setTimeout(() => { void saveCloudProfile(account).catch((failure: Error) => setCloud(value => ({ ...value, state: "error", error: failure.message }))); }, 800);
+    return () => clearTimeout(timer);
+  }, [account, notchScale, target, notchEnabled, sensitivity]);
   useEffect(() => {
     if (!workspaceReady || !accountId || (restoreFromDatabase.current && apiEnabled && bridgeOnline && !databaseReady && !databaseError)) return;
     const timer = setTimeout(() => {
@@ -1106,6 +1135,9 @@ function Presenter() {
         "Итоги готовы, но браузер не смог сохранить историю на этом устройстве.",
       );
     }
+    // Offline results stay in the local history and upload with the next studio visit.
+    if (account?.ownerId)
+      saveCloudSessions(account, [completed]).catch((error) => console.warn("Supabase:", error));
     // The server keeps a copy; the local history above stays the primary one.
     if (apiEnabled)
       (account ? syncProfile(account) : Promise.resolve()).then(() => saveSession(completed, external && !pdfMatches ? null : presentationId, account?.id)).catch((error) =>
@@ -1602,7 +1634,7 @@ function Presenter() {
           </div>
         </section>
         <div hidden={view !== "history"}><HistoryPage history={history} onOpen={item => { setResultArchive(true); setSelectedResult(item); setResultsOpen(true); }} onStudio={() => navigate("deck")} /></div>
-        <div hidden={view !== "profile"}>{account && <ProfilePage browserOnlyPdf={!presentationId && slides.some(slide => !!slide.image)} account={account} onSave={setAccount} onLogout={() => void logout()} onCreate={() => void logout(true)} onSwitch={switchProfile} profiles={listAccounts()} sessionActive={isSession} databaseStatus={databaseReady && !databaseError ? "connected" : !bridgeOnline ? "offline" : databaseError ? "error" : "connecting"} databaseError={databaseError} stats={profileStats} onRetry={() => setDatabaseRetry(value => value + 1)} />}</div>
+        <div hidden={view !== "profile"}>{account && <ProfilePage browserOnlyPdf={!presentationId && slides.some(slide => !!slide.image)} account={account} onSave={setAccount} onLogout={() => void logout()} onCreate={() => void logout(true)} onSwitch={switchProfile} profiles={listAccounts()} sessionActive={isSession} databaseStatus={databaseReady && !databaseError ? "connected" : !bridgeOnline ? "offline" : databaseError ? "error" : "connecting"} databaseError={databaseError} stats={profileStats} onRetry={() => setDatabaseRetry(value => value + 1)} cloud={ownerId ? { ...cloud, onRetry: () => { setCloud({ state: "syncing", error: "" }); setCloudRetry(value => value + 1); } } : null} />}</div>
       </div>
 
       <dialog ref={previewDialog} className="results-dialog companion-preview-dialog" aria-labelledby="companion-preview-title" onCancel={() => setOverlayPreview(false)} onClose={() => setOverlayPreview(false)}>
@@ -1798,9 +1830,53 @@ export default function App() {
     window.addEventListener("popstate", syncPath);
     return () => { window.removeEventListener("popstate", syncPath); pendingTimers.forEach(clearTimeout); };
   }, []);
+  // With Supabase the session decides who is signed in; the cached account follows it.
+  const [cloudChecked, setCloudChecked] = useState(() => !cloudEnabled || new URLSearchParams(location.search).has("audience"));
+  useEffect(() => {
+    if (!cloudEnabled || new URLSearchParams(location.search).has("audience")) return;
+    let cancelled = false;
+    let shown = false;
+    let unwatch: (() => void) | undefined;
+    const inside = () => location.pathname === "/studio" || location.pathname === "/learn";
+    const show = () => { shown = true; setCloudChecked(true); };
+    // A slow network never keeps a speaker out: after 3 s the cached account opens the studio.
+    const timer = setTimeout(show, 3000);
+    void (async () => {
+      try {
+        const user = await cloudSession();
+        const account = loadAccount();
+        if (cancelled || user === "offline") return;
+        if (!user) {
+          if (!account) return;
+          signOut();
+          if (shown && inside()) location.assign("/login");
+          return;
+        }
+        // An email link has just signed in, or another account took over this browser.
+        if (account?.ownerId === user.id || location.pathname === "/reset-password") return;
+        const { created } = await cloudResume(user);
+        if (cancelled) return;
+        if (inside()) { if (shown) location.reload(); return; }
+        if (location.pathname !== "/login" && location.pathname !== "/register") return;
+        history.replaceState(null, "", created ? "/studio?welcome=1" : "/studio");
+        flushSync(() => setPath("/studio"));
+      } catch (failure) {
+        console.warn("Supabase:", failure);
+      } finally {
+        clearTimeout(timer);
+        if (!cancelled) show();
+      }
+    })();
+    void watchCloudSignOut(() => {
+      if (!loadAccount()?.ownerId) return;
+      signOut();
+      if (inside()) location.assign("/login");
+    }).then(stop => { if (cancelled) stop(); else unwatch = stop; }).catch(() => undefined);
+    return () => { cancelled = true; clearTimeout(timer); unwatch?.(); };
+  }, []);
   // Registration -> learning -> studio. The local account drives the funnel.
   useEffect(() => {
-    if (new URLSearchParams(location.search).has("audience")) return;
+    if (!cloudChecked || new URLSearchParams(location.search).has("audience")) return;
     const account = loadAccount();
     if ((path === "/learn" || path === "/studio") && !account) {
       const destination = loadSavedAccount() ? "/login" : "/register";
@@ -1812,10 +1888,12 @@ export default function App() {
       history.replaceState(null, "", "/studio");
       flushSync(() => setPath("/studio"));
     }
-  }, [path]);
+  }, [path, cloudChecked]);
   const enterStudio = useCallback((completed: boolean) => {
     if (transitioning.current || location.pathname !== "/learn") return;
-    if (completed) markLearned();
+    const account = completed ? markLearned() : loadAccount();
+    // Learning progress lives in settings, so leaving the lesson is the moment to share it.
+    if (account?.ownerId) void saveCloudProfile(account).catch((failure) => console.warn("Supabase:", failure));
     transitioning.current = true;
     const navigate = () => {
       history.pushState(null, "", "/studio");
@@ -1843,6 +1921,10 @@ export default function App() {
   }, [reduced]);
   const page = new URLSearchParams(location.search).has("audience") ? (
     <Audience />
+  ) : !cloudChecked ? (
+    <div className="companion-loading">Проверяем вход…</div>
+  ) : path === "/reset-password" && cloudEnabled ? (
+    <Suspense fallback={<div className="companion-loading">Открываем смену пароля…</div>}><ResetPasswordPage /></Suspense>
   ) : path === "/register" ? (
     <Suspense fallback={<div className="companion-loading">Готовим знакомство…</div>}><RegistrationPage /></Suspense>
   ) : path === "/login" ? (
