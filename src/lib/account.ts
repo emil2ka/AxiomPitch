@@ -4,6 +4,8 @@ export type LocalAccount = {
   email: string;
   createdAt: string;
   learnedAt?: string;
+  /** Supabase user who owns this profile; absent for device-only profiles. */
+  ownerId?: string;
 };
 type StorageLike = Pick<Storage, "getItem" | "setItem" | "removeItem">;
 const KEY = "axiompitch-account";
@@ -21,7 +23,8 @@ function parse(raw: string | null): LocalAccount | null {
     if (!value || typeof value.name !== "string" || typeof value.email !== "string") return null;
     return { id: typeof value.id === "string" ? value.id : "legacy", name: value.name, email: value.email,
       createdAt: typeof value.createdAt === "string" ? value.createdAt : "",
-      learnedAt: typeof value.learnedAt === "string" ? value.learnedAt : undefined };
+      learnedAt: typeof value.learnedAt === "string" ? value.learnedAt : undefined,
+      ...(typeof value.ownerId === "string" ? { ownerId: value.ownerId } : {}) };
   } catch { return null; }
 }
 export function loadSavedAccount(from?: StorageLike): LocalAccount | null {
@@ -66,6 +69,10 @@ export function updateAccount(id: string, name: string, email: string, from?: St
 }
 export function createAccount(name: string, email: string, from?: StorageLike): LocalAccount {
   return persist({ id: crypto.randomUUID(), name: name.trim(), email: email.trim(), createdAt: new Date().toISOString() }, from);
+}
+/** A cloud sign-in makes the profile the server returned the current one. */
+export function adoptAccount(account: LocalAccount, from?: StorageLike): LocalAccount {
+  return persist(account, from);
 }
 export function resumeAccount(id: string, from?: StorageLike): LocalAccount | null {
   const account = listAccounts(from).find(item => item.id === id);
@@ -119,6 +126,7 @@ export function cacheAccounts(accounts: LocalAccount[], from?: StorageLike) {
   const store = resolveStorage(from);
   if (!store) return;
   const merged = new Map(listAccounts(store).map(account => [account.id, account]));
-  for (const account of accounts) merged.set(account.id, account);
+  // The bridge does not know the cloud owner, so keep fields it did not send.
+  for (const account of accounts) merged.set(account.id, { ...merged.get(account.id), ...account });
   store.setItem(PROFILES, JSON.stringify([...merged.values()]));
 }
