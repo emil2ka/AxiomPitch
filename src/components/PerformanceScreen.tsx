@@ -1,11 +1,12 @@
 import { useEffect, useRef, useState } from "react";
+import type { ReactNode } from "react";
 import { ArrowLeft, ArrowRight, Maximize, Minimize, Pause, Play, Square } from "lucide-react";
 import { SlideView } from "./SlideView";
 import { formatTime } from "../lib/deck";
 import type { Slide } from "../lib/types";
 
-export function PerformanceScreen({ slide, index, count, duration, paused, external, cameraDisconnected, onStep, onPause, onFinish, onStudio }: {
-  slide: Slide; index: number; count: number | null; duration: number; paused: boolean; external: boolean; cameraDisconnected: boolean;
+export function PerformanceScreen({ slide, index, count, duration, paused, external, cameraDisconnected, notch, onStep, onPause, onFinish, onStudio }: {
+  slide: Slide; index: number; count: number | null; duration: number; paused: boolean; external: boolean; cameraDisconnected: boolean; notch?: ReactNode;
   onStep: (direction: "next" | "previous") => void; onPause: () => void; onFinish: () => void; onStudio: () => void;
 }) {
   const [controls, setControls] = useState(true);
@@ -36,6 +37,7 @@ export function PerformanceScreen({ slide, index, count, duration, paused, exter
   };
   return <section className={`performance-screen ${controls || paused ? "controls-visible" : "controls-hidden"}`} aria-label="Экран выступления" onPointerMove={reveal} onPointerDown={reveal}>
     <div className="performance-slide">{external ? <div className="performance-external"><span>Внешний показ</span><h1>Слайд {index + 1}</h1><p>Презентация открыта в подключённом приложении.</p></div> : <SlideView slide={slide} />}</div>
+    {notch}
     {cameraDisconnected && <p className="performance-camera-notice" role="status">Камера отключена — листай слайды стрелками ← →</p>}
     <div className="performance-controls">
       <button onClick={onStudio} className="performance-back"><ArrowLeft size={16} />В студию</button>

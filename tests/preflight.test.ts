@@ -47,13 +47,14 @@ test("first start requires a live camera, a deck and explicit notch choice, with
     assert.ok(result.reason);
   }
 });
-test("notch is optional only after choosing off; on requires the shell and selected display", () => {
-  const withNotch: PreparationInput = { ...prepared, notchChoice: "on", bridgeOnline: true, shellConnected: true };
+test("web notch starts without a local application; external notch requires the shell and display", () => {
+  assert.equal(presentationReadiness({ ...prepared, notchChoice: "on", bridgeOnline: false, shellConnected: false, displayAvailable: false }).ready, true);
+  const withNotch: PreparationInput = { ...prepared, external: true, externalReady: true, notchChoice: "on", bridgeOnline: true, shellConnected: true };
   assert.equal(presentationReadiness(withNotch).ready, true);
   for (const patch of [{ bridgeOnline: false }, { shellConnected: false }, { displayAvailable: false }]) {
     assert.equal(presentationReadiness({ ...withNotch, ...patch }).ready, false);
   }
-  assert.equal(presentationReadiness({ ...prepared, notchVisible: true }).ready, false, "off must actually hide the notch before starting");
+  assert.equal(presentationReadiness({ ...prepared, external: true, externalReady: true, notchVisible: true }).ready, false, "off must actually hide the notch before starting");
   for (const value of [null, "", "true", "false", "anything"]) assert.equal(readNotchChoice(value), null);
   assert.equal(readNotchChoice("on"), "on");
   assert.equal(readNotchChoice("off"), "off");

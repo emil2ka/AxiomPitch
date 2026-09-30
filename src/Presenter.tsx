@@ -2,6 +2,7 @@ import {
   useCallback,
   useEffect,
   useLayoutEffect,
+  useMemo,
   useRef,
   useState,
 } from "react";
@@ -38,6 +39,8 @@ import { ProfilePage } from "./components/ProfilePage";
 import type { CloudStatus } from "./components/ProfilePage";
 import { HistoryPage } from "./components/HistoryPage";
 import { Avatar } from "./components/Avatar";
+import { WebNotch } from "./components/WebNotch";
+import { WebNotchFeed, emptyWebNotch } from "./lib/web-notch";
 import { CameraPreview } from "./components/CameraPreview";
 import { PreparationChecklist } from "./components/PreparationChecklist";
 import { bridgeBase, bridgeConfigured } from "./lib/bridge-config";
@@ -285,6 +288,10 @@ export default function Presenter({ active }: { active: boolean }) {
   const [pdfMatches, setPdfMatches] = useState(false);
   const [notchChoice, setNotchChoice] = useState(() => readNotchChoice(storage.getItem("axiompitch-notch")));
   const notchEnabled = notchChoice === "on";
+  const [webNotchHidden, setWebNotchHidden] = useState(false);
+  const [webNotchFeed] = useState(() => new WebNotchFeed());
+  const lastNotchFrame = useRef(0);
+  const webNotchStateRef = useRef(emptyWebNotch());
 
   const [notchDisplay, setNotchDisplay] = useState<number | null>(() => {
     const saved = storage.getItem("axiompitch-notch-display");
@@ -302,6 +309,7 @@ export default function Presenter({ active }: { active: boolean }) {
   const bridge = useRef<BridgeClient | null>(null);
   const chooseNotch = (choice: "on" | "off") => {
     setNotchChoice(choice);
+    if (choice === "on") setWebNotchHidden(false);
     if (choice === "off" && bridge.current?.online) void bridge.current.setOverlay(false).then(state => setOverlayVisible(state.visible)).catch((error: Error) => setNotice(error.message));
   };
   const setNotchEnabled = (enabled: boolean) => chooseNotch(enabled ? "on" : "off");
@@ -326,7 +334,7 @@ export default function Presenter({ active }: { active: boolean }) {
     stage,
     mode,
     external,
-    externalReady,
+    externalReady, webNotch: notchEnabled && !external,
   });
   useLayoutEffect(() => {
     current.current = {
@@ -336,9 +344,9 @@ export default function Presenter({ active }: { active: boolean }) {
       stage,
       mode,
       external,
-      externalReady,
+      externalReady, webNotch: notchEnabled && !external,
     };
-  }, [slides, index, locked, stage, mode, external, externalReady]);
+  }, [slides, index, locked, stage, mode, external, externalReady, notchEnabled]);
   const reducedMotion = useReducedMotion();
 
   const goTo = useCallback((next: number) => {
@@ -360,6 +368,8 @@ export default function Presenter({ active }: { active: boolean }) {
   const step = useCallback(
     (gesture: "next" | "previous") => {
       if (current.current.stage === "checking") return;
+      webNotchFeed.react(gesture);
+      if (current.current.webNotch) channel.current?.postMessage({ type: "notch-command", gesture });
       const client = bridge.current;
       if (current.current.external) {
         if (!client?.online || !current.current.externalReady) { setNotice("Внешний показ недоступен. Проверь подключение и приложение."); return; }
@@ -371,7 +381,7 @@ export default function Presenter({ active }: { active: boolean }) {
       }
       goTo(current.current.index + (gesture === "next" ? 1 : -1));
     },
-    [goTo],
+    [goTo, webNotchFeed],
   );
   const applyTarget = useCallback(
     (status: TargetStatus) => {
@@ -517,6 +527,11 @@ export default function Presenter({ active }: { active: boolean }) {
       if (location.pathname !== "/studio") return;
       // The notch on the audience screen mirrors the same pose, never the video.
       bridge.current?.publishFrame(frame);
+      webNotchFeed.draw(frame);
+      if (current.current.webNotch && frame.time - lastNotchFrame.current >= 66) {
+        lastNotchFrame.current = frame.time;
+        channel.current?.postMessage({ type: "notch-frame", frame });
+      }
       if (calibrationRef.current) {
         handleCalibration(frame);
         return;
@@ -561,6 +576,8 @@ export default function Presenter({ active }: { active: boolean }) {
       }
       if (nextFeedback.kind === "success" && nextFeedback.gesture) {
         const gesture = nextFeedback.gesture;
+        webNotchFeed.react(gesture);
+        if (current.current.webNotch) channel.current?.postMessage({ type: "notch-command", gesture });
         if (state.stage === "checking") {
           const nextLocked = gesture === "toggle" ? !state.locked : state.locked;
           if (gesture === "toggle") applyLock(nextLocked);
@@ -620,7 +637,7 @@ export default function Presenter({ active }: { active: boolean }) {
             : nextFeedback,
         );
     },
-    [goTo, applyLock, handleCalibration, setPreflight],
+    [goTo, applyLock, handleCalibration, setPreflight, webNotchFeed],
   );
   const {
     status: cameraStatus,
@@ -733,14 +750,14 @@ export default function Presenter({ active }: { active: boolean }) {
       slideCount: Math.max(shownIndex + 1, shownCount ?? 0),
       durationMs: stage === "checking" ? 0 : session.current?.duration ?? 0,
       id: sessionMeta.current.id,
-      overlayEnabled: notchEnabled,
+      overlayEnabled: notchEnabled && external,
       overlayDisplayId: notchDisplay,
       overlayScale: notchScale,
     });
     publish();
     const heartbeat = setInterval(publish, 1000);
     return () => clearInterval(heartbeat);
-  }, [stage, mode, shownIndex, shownCount, bridgeOnline, notchEnabled, notchDisplay, notchScale]);
+  }, [stage, mode, shownIndex, shownCount, bridgeOnline, notchEnabled, notchDisplay, notchScale, external]);
   useEffect(() => {
     try {
       if (notchChoice !== null) storage.setItem("axiompitch-notch", notchChoice);
@@ -1022,23 +1039,29 @@ export default function Presenter({ active }: { active: boolean }) {
     navigate("test");
     if (stage !== "paused") sessionMeta.current = { id: crypto.randomUUID(), startedAt: new Date().toISOString() };
     setPreflight(newPreflight());
+    setWebNotchHidden(false);
     resetGestures();
     setFeedback({ kind: "idle", message: "Покажи ладонь и попробуй оба свайпа" });
     successUntil.current = 0;
     current.current.stage = "checking";
     setStage("checking");
     // Immediately establish ownership before a manual show request.
-    bridge.current?.publishSession({ stage: "checking", mode, index: shownIndex, slideCount: Math.max(shownIndex + 1, shownCount ?? 0), durationMs: 0, id: sessionMeta.current.id, overlayEnabled: notchEnabled, overlayDisplayId: notchDisplay, overlayScale: notchScale });
+    bridge.current?.publishSession({ stage: "checking", mode, index: shownIndex, slideCount: Math.max(shownIndex + 1, shownCount ?? 0), durationMs: 0, id: sessionMeta.current.id, overlayEnabled: notchEnabled && external, overlayDisplayId: notchDisplay, overlayScale: notchScale });
   };
   const finishCheck = useCallback(() => {
     resetGestures();
     current.current.stage = beforeCheck.current;
     setStage(beforeCheck.current);
-    setFeedback({ kind: "idle", message: gesturesReady(preflight) ? "Жесты проверены" : "Проверка приостановлена. Заверши оставшиеся шаги перед стартом." });
+    setFeedback({ kind: "idle", message: gesturesReady(preflight) ? "Жесты проверены" : "Тест остановлен. Проверку жестов можно продолжить позже." });
     // No SessionClock, results, history entry or external slide command.
-    bridge.current?.publishSession({ stage: beforeCheck.current, mode, index: shownIndex, slideCount: Math.max(shownIndex + 1, shownCount ?? 0), durationMs: session.current?.duration ?? 0, id: sessionMeta.current.id, overlayEnabled: notchEnabled, overlayDisplayId: notchDisplay, overlayScale: notchScale });
-  }, [resetGestures, mode, shownIndex, shownCount, notchEnabled, notchDisplay, notchScale, preflight]);
+    bridge.current?.publishSession({ stage: beforeCheck.current, mode, index: shownIndex, slideCount: Math.max(shownIndex + 1, shownCount ?? 0), durationMs: session.current?.duration ?? 0, id: sessionMeta.current.id, overlayEnabled: notchEnabled && external, overlayDisplayId: notchDisplay, overlayScale: notchScale });
+  }, [resetGestures, mode, shownIndex, shownCount, notchEnabled, notchDisplay, notchScale, preflight, external]);
   const toggleOverlay = () => {
+    if (!external) {
+      setNotchChoice("on");
+      setWebNotchHidden(notchEnabled ? !webNotchHidden : false);
+      return;
+    }
     if (!bridge.current?.online || !shellConnected) { connectLocalBridge(); return; }
     setNotchChoice("on");
     if (!overlayVisible && !["running", "paused", "checking"].includes(stage)) { startCheck(); return; }
@@ -1071,11 +1094,14 @@ export default function Presenter({ active }: { active: boolean }) {
     );
     channel.current.onmessage = (event) => {
       if (event.data.type === "step" && ["next", "previous"].includes(event.data.direction) && !current.current.external && current.current.stage !== "checking") step(event.data.direction);
-      if (event.data.type === "ready")
+      if (event.data.type === "hide-notch") setWebNotchHidden(true);
+      if (event.data.type === "ready") {
+        channel.current?.postMessage({ type: "notch-state", state: webNotchStateRef.current });
         channel.current?.postMessage({
           type: "slide",
           slide: current.current.slides[current.current.index],
         });
+      }
     };
   };
   const startSession = () => {
@@ -1093,6 +1119,7 @@ export default function Presenter({ active }: { active: boolean }) {
     };
     correctionLast.current = {};
     setDuration(0);
+    setWebNotchHidden(false);
     setStage("running");
     current.current.stage = "running";
     applyLock(false);
@@ -1209,7 +1236,7 @@ export default function Presenter({ active }: { active: boolean }) {
         : !preflight.lock ? "Удержи ладонь 1,5 секунды"
         : !preflight.unlock ? "Опусти руку и повтори удержание"
         : notchChoice === null ? "Выбери режим чёлки"
-        : notchEnabled && (!overlayVisible || !shellConnected || !bridgeOnline) ? "Осталось проверить чёлку"
+        : notchEnabled && external && (!overlayVisible || !shellConnected || !bridgeOnline) ? "Осталось проверить чёлку"
         : "Всё готово к выходу"
       : stage === "running"
       ? cameraStatus !== "ready" ? "Камера отключена — листай стрелками ← →" : locked
@@ -1220,6 +1247,14 @@ export default function Presenter({ active }: { active: boolean }) {
         : stage === "finished"
           ? "Выступление завершено"
           : readiness.ready ? "Готов к выходу" : readiness.reason;
+  const webNotchState = useMemo(() => ({ visible: active && notchEnabled && !external && !webNotchHidden && stage !== "finished", locked, scale: notchScale, message: coachMessage, cameraReady: cameraStatus === "ready" }), [active, notchEnabled, external, webNotchHidden, stage, locked, notchScale, coachMessage, cameraStatus]);
+  useLayoutEffect(() => { webNotchStateRef.current = webNotchState; }, [webNotchState]);
+  useEffect(() => {
+    channel.current?.postMessage({ type: "notch-state", state: webNotchState });
+    if (!webNotchState.cameraReady) webNotchFeed.clear();
+  }, [webNotchState, webNotchFeed]);
+  const webNotch = <WebNotch feed={webNotchFeed} state={webNotchState} onHide={() => setWebNotchHidden(true)} />;
+  const notchShown = external ? overlayVisible : webNotchState.visible;
   useEffect(() => {
     const sync = () => {
       const next = readView();
@@ -1400,6 +1435,7 @@ export default function Presenter({ active }: { active: boolean }) {
       <div className={`workspace-grid ${external && !pdfMatches ? "external-without-preview" : ""}`}>
         <div className="stage-column">
         <section className="stage-panel" aria-label="Презентация">
+          {view === "deck" && webNotch}
           {previewAvailable ? <motion.div
             className="slide-frame"
             key={slides[index].id}
@@ -1475,7 +1511,7 @@ export default function Presenter({ active }: { active: boolean }) {
                   ["Свайп влево", preflight.previous],
                   ["Удержание 1,5 с · блокировка", preflight.lock],
                   ["Ещё удержание · включение", preflight.unlock],
-                  [notchChoice === "off" ? "Выступление без чёлки" : "Чёлка на экране", notchChoice === "off" || (notchEnabled && bridgeOnline && shellConnected && overlayVisible)],
+                  [notchChoice === "off" ? "Выступление без чёлки" : "Чёлка на экране", notchChoice === "off" || (notchEnabled && notchShown)],
                 ].map(([label, done]) => <li key={String(label)} className={done ? "done" : ""}>{done ? <Check size={14} /> : <span className="preflight-dot" />}<span>{label}</span></li>)}
               </ul>
               <button className="button primary full" disabled={!gesturesReady(preflight) || cameraStatus !== "ready"} onClick={finishCheck}>Завершить проверку</button>
@@ -1571,7 +1607,7 @@ export default function Presenter({ active }: { active: boolean }) {
               </button>
             )}
             </>}
-            <p className="studio-equipment-status">{cameraStatus === "ready" ? "Камера готова" : "Камера выключена"} · {bridgeOnline && shellConnected ? "Чёлка подключена" : "Чёлка не подключена"}</p>
+            <p className="studio-equipment-status">{cameraStatus === "ready" ? "Камера готова" : "Камера выключена"} · {!external ? notchEnabled ? "Чёлка в браузере" : "Без чёлки" : bridgeOnline && shellConnected ? "Чёлка подключена" : "Чёлка не подключена"}</p>
           </section>
           <section className="camera-panel">
             <div className="panel-heading"><Camera size={15} /><span>Камера</span><small>{cameraStatus === "ready" ? `${cameraFps} FPS` : cameraStatus === "loading" ? "подключение" : "выключена"}</small></div>
@@ -1589,12 +1625,12 @@ export default function Presenter({ active }: { active: boolean }) {
         </span>
         <span>
           {cameraStatus === "ready"
-            ? overlayVisible ? "Компаньон виден поверх презентации" : "Зрители видят только презентацию"
+            ? notchShown ? "Чёлка видна вместе с презентацией" : "Зрители видят только презентацию"
             : "Можно начать с демо-слайдов или своего PDF"}
         </span>
       </footer>
         </div>
-        {view === "test" && <TestPage onSlide={index => setPreflight(previous => ({ ...previous, index }))} active={stage === "checking"} busy={stage === "running"} ready={workspaceReady && cameraStatus === "ready"} source={videoRef} cameraStatus={cameraStatus} cameraError={cameraError} diagnostic={<>{debugGestures && (
+        {view === "test" && <TestPage notch={webNotch} onSlide={index => setPreflight(previous => ({ ...previous, index }))} active={stage === "checking"} busy={stage === "running"} ready={workspaceReady && cameraStatus === "ready"} source={videoRef} cameraStatus={cameraStatus} cameraError={cameraError} diagnostic={<>{debugGestures && (
               <div className="studio-debug">
                 {gestureDebug ? (<>
                   <span>Руки: {gestureDebug.hands} · открытых: {gestureDebug.open} · ладонь: {(gestureDebug.scale * 100).toFixed(1)}%</span>
@@ -1603,8 +1639,8 @@ export default function Presenter({ active }: { active: boolean }) {
                   <div className="studio-debug-log">{debugLog.length ? debugLog.map((entry, i) => <span key={`${entry.code}-${i}`}>{entry.message}</span>) : <span>Журнал пока пуст</span>}</div>
                 </>) : <span>Отладка включена. Начни репетицию и покажи ладонь — здесь появятся цифры.</span>}
               </div>
-            )}</>} state={preflight} notchChoice={notchChoice} onNotchChoice={chooseNotch} notchConnected={bridgeOnline && shellConnected} notchVisible={overlayVisible} message={coachMessage} onStart={startCheck} onFinish={finishCheck} onCamera={() => { if (cameraStatus === "ready" || cameraStatus === "loading") cameraStop(); else { resetGestures(); void cameraStart(); } }} onNotch={toggleOverlay} onSettings={() => navigate("settings", "companion")} onStudio={() => { if (stage === "checking") finishCheck(); navigate("deck"); }} />}
-        {view === "present" && <PerformanceScreen slide={slides[index]} index={shownIndex} count={shownCount ?? null} duration={duration} paused={stage === "paused"} external={external} cameraDisconnected={cameraStatus !== "ready"} onStep={step} onPause={pauseSession} onFinish={finishSession} onStudio={() => { if (stage === "running") pauseSession(); if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); navigate("deck"); }} />}
+            )}</>} state={preflight} notchChoice={notchChoice} onNotchChoice={chooseNotch} notchConnected={!external || (bridgeOnline && shellConnected)} notchVisible={notchShown} message={coachMessage} onStart={startCheck} onFinish={finishCheck} onCamera={() => { if (cameraStatus === "ready" || cameraStatus === "loading") cameraStop(); else { resetGestures(); void cameraStart(); } }} onNotch={toggleOverlay} onSettings={() => navigate("settings", "companion")} onStudio={() => { if (stage === "checking") finishCheck(); navigate("deck"); }} />}
+        {view === "present" && <PerformanceScreen slide={slides[index]} index={shownIndex} count={shownCount ?? null} duration={duration} paused={stage === "paused"} external={external} cameraDisconnected={cameraStatus !== "ready"} notch={webNotch} onStep={step} onPause={pauseSession} onFinish={finishSession} onStudio={() => { if (stage === "running") pauseSession(); if (document.fullscreenElement) void document.exitFullscreen().catch(() => undefined); navigate("deck"); }} />}
         <section className="settings-page" hidden={view !== "settings"} aria-labelledby="settings-title">
           <h1 id="settings-title" tabIndex={-1}>Настройки</h1>
           <p className="page-lead">Настрой один раз — сохраним для твоего профиля.</p>
@@ -1638,20 +1674,22 @@ export default function Presenter({ active }: { active: boolean }) {
           <div className="settings-content" hidden={settingsTab !== "companion"}>
             <section className="settings-group notch-settings">
               <h2>Чёлка поверх презентации</h2><div className="preparation-notch-options" role="group" aria-label="Режим чёлки"><button aria-pressed={notchChoice === "on"} onClick={() => chooseNotch("on")}>С чёлкой</button><button aria-pressed={notchChoice === "off"} onClick={() => chooseNotch("off")}>Без чёлки</button></div><p className="settings-note">3D-зеркало твоих движений у верхнего края экрана.</p>
-              <p className="companion-status" role="status">{!bridgeOnline ? "Локальное приложение выключено" : !shellConnected ? "Окно чёлки не запущено" : overlayVisible ? "Чёлка видна на экране" : "Чёлка подключена · скрыта"}</p>
-              <div className="notch-sample" aria-label="Предпросмотр размера чёлки"><div className="notch-sample-window" style={{ transform: `scale(${notchScale})` }}>{view === "settings" && settingsTab === "companion" && <Avatar locked={false} headStyle="ghost" face="none" />}</div></div>
+              <p className="companion-status" role="status">{external ? !bridgeOnline ? "Для внешнего показа подключи приложение на Mac" : !shellConnected ? "Окно чёлки не запущено" : overlayVisible ? "Чёлка видна на экране" : "Чёлка подключена · скрыта" : "Работает прямо в браузере · установка не нужна"}</p>
+              <div className="notch-sample" aria-label="Предпросмотр размера чёлки">{view === "settings" && settingsTab === "companion" && <WebNotch feed={webNotchFeed} state={{ ...webNotchState, visible: true }} />}</div>
               <div className="notch-size"><span>Размер чёлки</span><div className="notch-size-options" role="group" aria-label="Размер чёлки">{[[.85, "Компактная"], [1, "Обычная"], [1.2, "Крупная"]].map(([size, label]) => <button key={size} aria-pressed={notchScale === size} onClick={() => setNotchScale(Number(size))}>{label}</button>)}</div></div>
+              <label className="preference-switch"><span><strong>Автопоказ чёлки</strong><small>При начале репетиции или выступления</small></span><input type="checkbox" role="switch" checked={notchEnabled} onChange={event => setNotchEnabled(event.target.checked)} /></label>
+              <div className="companion-actions"><button className="button primary" disabled={external && (!bridgeOnline || !shellConnected)} onClick={toggleOverlay}>{notchShown ? "Скрыть чёлку" : "Показать чёлку"}</button><button className="text-button" onClick={() => setOverlayPreview(true)}>Пример движений</button></div>
+              <p className="settings-note">Крестик скрывает чёлку до следующей сессии. Жесты работают и без неё.</p>
+              <p className="settings-note">В Meet показывай окно «Экран аудитории» — чёлка будет видна вместе со слайдами.</p>
+              <details className="connection-help"><summary>Чёлка поверх Keynote или другого приложения</summary><p>Для показа вне браузера нужно приложение на Mac. Запусти <code>npm run studio</code> из папки проекта и подключи внешний показ.</p>
               <label className="field-label" htmlFor="companion-display">На каком экране</label>
               <select className="settings-select" id="companion-display" value={notchDisplay ?? "auto"} disabled={!bridgeOnline || !shellConnected} onChange={event => setNotchDisplay(event.target.value === "auto" ? null : Number(event.target.value))}>
                 <option value="auto">Автоматически · экран с вырезом / основной</option>
                 {displays.map(display => <option key={display.id} value={display.id}>{display.label}{display.primary ? " · основной" : ""}</option>)}
                 {notchDisplay !== null && !displays.some(display => display.id === notchDisplay) && <option value={notchDisplay}>Выбранный экран не подключён</option>}
               </select>
-              <label className="preference-switch"><span><strong>Автопоказ чёлки</strong><small>При начале репетиции или выступления</small></span><input type="checkbox" role="switch" checked={notchEnabled} onChange={event => setNotchEnabled(event.target.checked)} /></label>
-              <div className="companion-actions"><button className="button primary" disabled={!bridgeOnline || !shellConnected} onClick={toggleOverlay}>{overlayVisible ? "Скрыть с экрана" : "Показать на экране"}</button><button className="text-button" onClick={() => setOverlayPreview(true)}>Пример движений</button></div>
-              <p className="settings-note">Крестик скрывает чёлку до следующей сессии. Жесты работают и без неё.</p>
               {!bridgeOnline && <button className="button secondary" onClick={connectLocalBridge}>{localBridgeRequested ? "Повторить подключение" : "Подключить приложение на Mac"}</button>}
-              {!shellConnected && <details className="connection-help"><summary>Подключить чёлку на Mac</summary><p>Останови отдельный dev-сервер и запусти <code>npm run studio</code> из папки проекта. Если браузер запросит доступ к локальной сети, разреши его для подключения чёлки.</p></details>}
+              </details>
             </section>
           </div>
           <div className="settings-content" hidden={settingsTab !== "advanced"}>

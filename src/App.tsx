@@ -9,6 +9,7 @@ import { CameraProvider } from "./components/CameraProvider";
 import { navigateApp } from "./lib/navigation";
 import "./speaker-transition.css";
 import "./preparation.css";
+import "./web-notch.css";
 import "./studio.css";
 
 const Landing = lazy(() => import("./components/Landing").then(module => ({ default: module.Landing })));

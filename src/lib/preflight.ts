@@ -38,7 +38,7 @@ export function presentationReadiness(input: PreparationInput) {
   const checks = [
     { id: "presentation", label: "Презентация", done: input.workspaceReady && !input.pdfLoading && (input.external ? input.externalReady : input.hasSlides), detail: "Дождись загрузки презентации или восстанови внешний показ." },
     { id: "camera", label: "Камера и распознавание", done: input.cameraStatus === "ready", detail: input.cameraStatus === "loading" ? "Дождись готовности камеры и распознавания." : "Подключи камеру перед выступлением." },
-    { id: "notch", label: input.notchChoice === "off" ? "Выступление без чёлки" : "Чёлка", done: input.notchChoice === "off" ? !input.notchVisible : input.notchChoice === "on" && input.bridgeOnline && input.shellConnected && input.displayAvailable, detail: input.notchChoice === null ? "Выбери: с чёлкой или без неё." : input.notchChoice === "off" ? "Дождись, пока чёлка скроется." : !input.displayAvailable ? "Выбранный экран отключён. Выбери доступный экран." : "Подключи приложение для чёлки или выбери выступление без неё." },
+    { id: "notch", label: input.notchChoice === "off" ? "Выступление без чёлки" : "Чёлка", done: input.notchChoice !== null && (!input.external || (input.notchChoice === "off" ? !input.notchVisible : input.bridgeOnline && input.shellConnected && input.displayAvailable)), detail: input.notchChoice === null ? "Выбери: с чёлкой или без неё." : input.notchChoice === "off" ? "Дождись, пока чёлка скроется." : !input.displayAvailable ? "Выбранный экран отключён. Выбери доступный экран." : "Для чёлки поверх внешнего приложения подключи приложение на Mac." },
   ];
   return { checks, ready: checks.every(check => check.done), reason: checks.find(check => !check.done)?.detail ?? "Всё готово к выступлению" };
 }

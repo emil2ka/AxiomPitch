@@ -1,0 +1,13 @@
+.web-notch { position: absolute; top: 0; left: 50%; transform: translateX(-50%); z-index: 10; width: min(calc(260px * var(--notch-scale, 1)), 72%); border: 1px solid #ffffff1c; border-top: 0; border-radius: 0 0 18px 18px; background: #05070aee; color: #b5c4d5; box-shadow: 0 6px 24px #0005; overflow: hidden; }
+.web-notch-avatar { height: calc(84px * var(--notch-scale, 1)); }
+.web-notch .avatar-scene { height: 100%; width: 100%; }
+.web-notch p { margin: 0; padding: 0 24px 9px; text-align: center; font-size: 10px; line-height: 1.4; }
+.web-notch-close { position: absolute; top: 6px; right: 6px; width: 25px; height: 25px; display: grid; place-items: center; border: 0; border-radius: 50%; background: transparent; color: #8996a8; cursor: pointer; }
+.web-notch-close:hover, .web-notch-close:focus-visible { background: #ffffff20; color: white; }
+.test-presentation, .stage-panel { position: relative; }
+.performance-screen:has(.web-notch) .performance-camera-notice { top: auto; bottom: 85px; }
+@media (max-width: 560px) { .web-notch { width: min(calc(210px * var(--notch-scale, 1)), 70%); } .web-notch-avatar { height: calc(66px * var(--notch-scale, 1)); } .web-notch p { font-size: 9px; } }
+
+.audience-screen { position: relative; }
+
+.notch-settings .notch-sample { position: relative; }

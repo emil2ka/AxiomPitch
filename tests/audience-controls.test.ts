@@ -29,9 +29,15 @@ test("shared audience window forwards arrows, ignores repeats, and stops after t
     await act(async () => channel.onmessage?.({ data: { type: "slide", slide: demoSlides[0] } }));
     press("ArrowRight"); press("ArrowLeft"); press("ArrowRight", true); press("Enter");
     assert.deepEqual(channel.messages.slice(1), [{ type: "step", direction: "next" }, { type: "step", direction: "previous" }]);
+    await act(async () => channel.onmessage?.({ data: { type: "notch-state", state: { visible: true, locked: false, scale: 1.2, message: "Готов к движению", cameraReady: false } } }));
+    assert.ok(dom.window.document.querySelector('.web-notch'), "the shared window must render the web notch without Electron");
+    assert.match(dom.window.document.querySelector('.web-notch')!.textContent!, /Листай стрелками/);
+    await act(async () => (dom.window.document.querySelector('.web-notch-close') as HTMLButtonElement).click());
+    assert.equal(dom.window.document.querySelector('.web-notch'), null);
+    assert.deepEqual(channel.messages.at(-1), { type: "hide-notch" }, "closing must synchronize the speaker's notch too");
     await act(async () => channel.onmessage?.({ data: { type: "end" } }));
     press("ArrowRight");
-    assert.equal(channel.messages.length, 3);
+    assert.equal(channel.messages.length, 4);
     await act(async () => root.unmount());
     assert.equal(channel.closed, true);
   } finally { dom.window.close(); }
